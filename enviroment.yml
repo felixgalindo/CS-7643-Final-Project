@@ -1,0 +1,12 @@
+name: mm-fusion-ped-det
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - numpy
+      - pandas
+      - matplotlib
+      - scikit-learn
+      - jupyter
