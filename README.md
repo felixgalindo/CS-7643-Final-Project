@@ -18,8 +18,6 @@ git clone https://github.com/125918700/CS-7643-Final-Project.git
 cd ./CS-7643-Final-Project
 ```
 
-
-
 ## **Step 2: Create and Activate Conda Environment**
 
 ```bash
@@ -27,15 +25,14 @@ conda create -n mm-fusion-ped-det python=3.10
 conda activate mm-fusion-ped-det
 ```
 
-
 ## **Step 3: Install Dependencies**
 
 ### **3.1 Install TensorFlow**
 
-To ensure compatibility with Waymo tools, install TensorFlow **2.15.0**:
+To ensure compatibility with Waymo tools, install TensorFlow **2.11.0**:
 
 ```bash
-pip install tensorflow==2.15.0
+pip install tensorflow==2.11.0
 ```
 
 ### **3.2 Install Core Libraries**
@@ -51,7 +48,6 @@ For TensorFlow **2.11+**, install Waymo Open Dataset Tools using pip:
 ```bash
 pip install waymo-open-dataset-tf-2-11-0
 ```
-
 
 ## **Step 4: Verify Installation**
 
@@ -69,7 +65,6 @@ print('Waymo Open Dataset Installed Successfully!')
 "
 ```
 
-
 ## **Usage**
 
 Once the environment is set up, you can run the project scripts for pedestrian detection:
@@ -78,13 +73,9 @@ Once the environment is set up, you can run the project scripts for pedestrian d
 python main.py
 ```
 
-
-
 ## **Contributing**
 
-We welcome contributions! Please fork the repository and submit a pull request for any improvements.
-
-
+Please fork the repository and submit a pull request for any improvements.
 
 ## **License**
 
