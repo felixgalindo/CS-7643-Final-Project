@@ -10,7 +10,6 @@ This project focuses on **late fusion multimodal pedestrian detection** using **
 Ensure you have the following installed:
 - **Conda**: [Installation Guide](https://docs.conda.io/projects/conda/en/latest/user-guide/install/)
 
-
 ## **Step 1: Clone the Repository**
 
 ```bash

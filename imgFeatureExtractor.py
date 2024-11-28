@@ -7,7 +7,6 @@ from torchvision import models, transforms
 from waymo_open_dataset import dataset_pb2 as open_dataset
 import tensorflow as tf
 
-
 class ImgFeatureExtractor:
     def __init__(self, inDir, outDir, model):
         self.inDir = inDir
