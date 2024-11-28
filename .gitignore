@@ -1,0 +1,8 @@
+# Ignore zip files
+*.zip
+
+# Ignore PyTorch model files
+*.pt
+
+# Ignore pickle files
+*.pkl
