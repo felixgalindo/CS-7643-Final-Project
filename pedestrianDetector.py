@@ -16,7 +16,7 @@ class MMFusionPedestrianDetector(nn.Module):
         self.transformer = nn.TransformerEncoder(nn.TransformerEncoderLayer(modelDim,nHeads),nLayers)
 
         #Create predictors
-        self.boxPredictor = nn.Linear(modelDim,6) # x,y,x,len,width,height
+        self.boxPredictor = nn.Linear(modelDim,4) # x,y,width,height
         self.classPredictor = nn.Linear(modelDim,2) # Pedistrian, non-pedstrian
 
         #Positional Encoder
@@ -40,7 +40,7 @@ class MMFusionPedestrianDetector(nn.Module):
 
         return classes,boxes
 
-def TrainModel(cameraFeatures, lidarFeatures, modelDim=256, nClasses=2, batchSize=10, nEpochs=20,lr=1e-4):
+def TrainModel(cameraFeatures, lidarFeatures=None, modelDim=256, nClasses=2, batchSize=10, nEpochs=20,lr=1e-4):
 
     #Intialize 
     model = MMFusionPedestrianDetector(modelDim)
@@ -54,7 +54,7 @@ def TrainModel(cameraFeatures, lidarFeatures, modelDim=256, nClasses=2, batchSiz
         boxLoss = 0.0
 
         #Fwd Pass and compute loss
-        predictedClasses, predictedBoxes = model(cameraFeatures,lidarFeatures)
+        predictedClasses, predictedBoxes = model(cameraFeatures)#,lidarFeatures)
         #classLoss = classLossFunction()
         boxLoss = boxLossFunction(predictedBoxes)
         totalLoss = classLoss + boxLoss
@@ -64,22 +64,77 @@ def TrainModel(cameraFeatures, lidarFeatures, modelDim=256, nClasses=2, batchSiz
         optimizer.step()
     return model
 
+def AlignFeaturesAndGroundTruth(pklDir, ptDir):
+    """
+    Align .pkl ground truth data with .pt image features
+    Args:
+        pklDir: Directory containing .pkl files with ground truth data.
+        ptDir: Directory containing .pt files with image features.
+    Returns:
+        features: List of image feature tensors.
+        gndTruth: List of dictionaries with ground truth classes and boxes.
+    """
+    features = []
+    gndTruth = []
+    missing = 0
+    total = 0
+    # Traverse all .pkl files in the directory
+    for root, _, files in os.walk(pklDir):
+        for pklFile in files:
+            if pklFile.endswith('.pkl'):
+                # Load ground truth from the .pkl file
+                pklPath = os.path.join(root, pklFile)
+                with open(pklPath, 'rb') as f:
+                    groundTruth = pickle.load(f)
+
+                # Extract relative folder name and base file name
+                relativeFolder = os.path.relpath(root, pklDir)
+                pklFilename = os.path.splitext(pklFile)[0]  # Remove .pkl extension
+
+                containingFolder = os.path.basename(root)
+                #print(f"File: {pklFile} | Containing Folder: {containingFolder}")
+
+                # Construct .pt file path
+                ptFolder = os.path.join(ptDir, relativeFolder)
+                ptFilePath = os.path.join(ptFolder, f"{pklFilename}.pt")
+                ptFilePath = ptFilePath.replace(f"{containingFolder}_", "")
+                ptFilePath = ptFilePath.replace("camera_image_camera_", "camera_image_camera-")
+                #print(ptFilePath)
+                #print(containingFolder)
+
+                # Verify the .pt file exists
+                if os.path.exists(ptFilePath):
+                    # Load the .pt tensor
+                    imgFeatureTensor = torch.load(ptFilePath)
+
+                    # Append to the lists
+                    features.append(imgFeatureTensor)
+                    gndTruth.append(groundTruth)
+                else:
+                    print(f"Warning: Missing .pt file for {pklPath}")
+                    missing += 1
+
+                total += 1
+    print("missing: ", missing)
+    print("total: ", total)
+
+    return features, gndTruth
+
 if __name__ == "__main__":
-    #inDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) +"/dataset/compressed_camera_images")
-    #outDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) + "/data/compressed_camera_images")
-    pickleFile = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) +"/dataset/camera_box_list_20241127.pkl")
+    ptDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) +"/data/image_features")
+    pklDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) + "/dataset/cam_box_per_image")
 
-    #os.makedirs(outDir, exist_ok=True)
-    # Open the .pkl file in read-binary mode
-    print(pickleFile)
-    with open(pickleFile, 'rb') as file:
-        data = pickle.load(file)
+    print(pklDir)
+    print(ptDir)
 
-    for d in data:
-        print(d)
+    # Align features and ground truth
+    features, gndTruth = AlignFeaturesAndGroundTruth(pklDir, ptDir)
 
-    # groundTruth = []
-    # # Initialize the Pedestrian Detector
-    # featureExtractor = PedestrianDetector(groundTruth)
+    # Example: Inspect the first entries
+    if features and gndTruth:
+        print("Example Image Features:")
+        print(features[0])
+        print("Example Ground Truth:")
+        print(gndTruth[0])
 
 

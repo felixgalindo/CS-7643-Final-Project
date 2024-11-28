@@ -6,3 +6,6 @@
 
 # Ignore pickle files
 *.pkl
+
+# Ignore jpg files
+*.jpg
