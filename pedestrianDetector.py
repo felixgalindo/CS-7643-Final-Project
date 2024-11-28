@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import pickle
 
-class PedestrianDetector(nn.Module):
+class MMFusionPedestrianDetector(nn.Module):
     def __init__(self, modelDim=256, nClasses=2, nHeads=8,nLayers=6 ):
         super(PedestrianDetector, self).__init__()
 
@@ -39,6 +39,30 @@ class PedestrianDetector(nn.Module):
         boxes = self.boxPredictor(transformerOut)
 
         return classes,boxes
+
+def TrainModel(cameraFeatures, lidarFeatures, modelDim=256, nClasses=2, batchSize=10, nEpochs=20,lr=1e-4):
+
+    #Intialize 
+    model = MMFusionPedestrianDetector(modelDim)
+    classLossFunction = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.paramaters(), lr)
+
+    #Train the model
+    model.train()
+    for e in range(nEpochs):
+        classLoss= 0.0
+        boxLoss = 0.0
+
+        #Fwd Pass and compute loss
+        predictedClasses, predictedBoxes = model(cameraFeatures,lidarFeatures)
+        #classLoss = classLossFunction()
+        boxLoss = boxLossFunction(predictedBoxes)
+        totalLoss = classLoss + boxLoss
+
+        #Now run backward pass
+        totalLoss.backward()
+        optimizer.step()
+    return model
 
 if __name__ == "__main__":
     #inDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) +"/dataset/compressed_camera_images")
