@@ -4,8 +4,6 @@ import torch
 from tqdm import tqdm
 from PIL import Image
 from torchvision import models, transforms
-from waymo_open_dataset import dataset_pb2 as open_dataset
-import tensorflow as tf
 
 class ImgFeatureExtractor:
     def __init__(self, inDir, outDir, model):
@@ -63,13 +61,13 @@ class ImgFeatureExtractor:
 
 
 if __name__ == "__main__":
-    inDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) +"/dataset/compressed_camera_images")
-    outDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) + "/data/compressed_camera_images")
+    inDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) +"/dataset/compressed_camera_images2")
+    outDir = os.path.expanduser(os.path.dirname(os.path.abspath(__file__)) + "/data/image_features")
 
     os.makedirs(outDir, exist_ok=True)
 
     # Initialize the feature extractor
-    featureExtractor = WaymoImgFeatureExtractor(inDir, outDir, models.resnet50(pretrained=True))
+    featureExtractor = ImgFeatureExtractor(inDir, outDir, models.resnet50(pretrained=True))
 
     # Process all images 
     featureExtractor.parseJPGImages()
