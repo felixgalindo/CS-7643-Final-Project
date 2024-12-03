@@ -1,121 +1,100 @@
 import os
-import pickle
 import torch
-from torch.utils.data import DataLoader, Dataset
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from pedestrian_detector_dataset import PedestrianDetectorDataset, custom_collate
 
 
-class PedestrianDetectorDataset(Dataset):
-    def __init__(self, features, ground_truth):
-        """
-        Args:
-            features: List of feature tensors (.pt files).
-            ground_truth: List of dictionaries with classes and boxes (.pkl files).
-        """
-        self.features = features
-        self.ground_truth = ground_truth
+class MMFusionPedestrianDetector(nn.Module):
+    def __init__(self, model_dim=256, num_classes=2, num_heads=8, num_layers=6):
+        super(MMFusionPedestrianDetector, self).__init__()
 
-    def __getitem__(self, idx):
-        """
-        Returns a single sample from the dataset.
-        """
-        feature_tensor = self.features[idx]
-        ground_truth = self.ground_truth[idx]
+        # Create embedding projectors
+        self.cnn_projector = nn.Linear(2048, model_dim)
 
-        # Extract ground truth components
-        boxes = torch.tensor(ground_truth["boxes"], dtype=torch.float32)
-        classes = torch.tensor(ground_truth["classes"], dtype=torch.long)
+        # Transformer
+        self.transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(model_dim, num_heads), num_layers
+        )
 
-        return feature_tensor, boxes, classes
+        # Create predictors
+        self.box_predictor = nn.Linear(model_dim, 4)  # x, y, width, height
+        self.class_predictor = nn.Linear(model_dim, num_classes)  # Pedestrian, non-pedestrian
 
-    def __len__(self):
-        return len(self.features)
+        # Positional Encoder
+        self.positional_encoder = nn.Parameter(torch.zeros(1, 500, model_dim))
 
+    def forward(self, camera_features):
+        # Create embeddings
+        camera_embeddings = self.cnn_projector(camera_features)
+        fused_embeddings = camera_embeddings
 
-def AlignFeaturesAndGroundTruth(pklDir, ptDir):
-    """
-    Align .pkl ground truth data with .pt image features
-    Args:
-        pklDir: Directory containing .pkl files with ground truth data.
-        ptDir: Directory containing .pt files with image features.
-    Returns:
-        features: List of image feature tensors.
-        gndTruth: List of dictionaries with ground truth classes and boxes.
-    """
-    features = []
-    gndTruth = []
-    missing = 0
-    total = 0
-    # Traverse all .pkl files in the directory
-    for root, _, files in os.walk(pklDir):
-        for pklFile in files:
-            if pklFile.endswith('.pkl'):
-                # Load ground truth from the .pkl file
-                pklPath = os.path.join(root, pklFile)
-                with open(pklPath, 'rb') as f:
-                    groundTruth = pickle.load(f)
+        # Add positional encodings
+        fused_embeddings += self.positional_encoder[:, :fused_embeddings.size(1), :]
 
-                # Extract relative folder name and base file name
-                relativeFolder = os.path.relpath(root, pklDir)
-                pklFilename = os.path.splitext(
-                    pklFile)[0]  # Remove .pkl extension
+        # Get transformer output and make predictions
+        transformer_output = self.transformer(fused_embeddings)
+        classes = self.class_predictor(transformer_output)
+        boxes = self.box_predictor(transformer_output)
 
-                containingFolder = os.path.basename(root)
-                # print(f"File: {pklFile} Containing Folder: {containingFolder}")
-
-                # Construct .pt file path
-                ptFolder = os.path.join(ptDir, relativeFolder)
-                ptFilePath = os.path.join(ptFolder, f"{pklFilename}.pt")
-                ptFilePath = ptFilePath.replace(f"{containingFolder}_", "")
-                ptFilePath = ptFilePath.replace(
-                    "camera_image_camera_", "camera_image_camera-")
-                # print(ptFilePath)
-                # print(containingFolder)
-
-                # Verify the .pt file exists
-                if os.path.exists(ptFilePath):
-                    # Load the .pt tensor
-                    imgFeatureTensor = torch.load(ptFilePath)
-
-                    # Append to the lists
-                    features.append(imgFeatureTensor)
-                    gndTruth.append(groundTruth)
-                else:
-                    print(f"Warning: Missing .pt file for {pklPath}")
-                    missing += 1
-
-                total += 1
-    print("missing: ", missing)
-    print("total: ", total)
-
-    return features, gndTruth
+        return classes, boxes
 
 
-# Main script
+def train_model(dataloader, model_dim=256, num_classes=2, num_epochs=20, learning_rate=1e-4):
+    # Initialize the model, loss functions, and optimizer
+    model = MMFusionPedestrianDetector(model_dim, num_classes)
+    class_loss_function = nn.CrossEntropyLoss()
+    box_loss_function = nn.SmoothL1Loss()  # for bounding box regression loss
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Train the model
+    model.train()
+    for epoch in range(num_epochs):
+        epoch_class_loss = 0.0
+        epoch_box_loss = 0.0
+
+        for batch_features, batch_ground_truth in dataloader:
+            optimizer.zero_grad()
+
+            # Forward pass
+            predicted_classes, predicted_boxes = model(batch_features)
+            ground_truth_classes = batch_ground_truth["classes"]
+            ground_truth_boxes = batch_ground_truth["boxes"]
+
+            # Compute loss
+            class_loss = class_loss_function(
+                predicted_classes.view(-1, num_classes), ground_truth_classes.view(-1)
+            )
+            box_loss = box_loss_function(predicted_boxes, ground_truth_boxes)
+            total_loss = class_loss + box_loss
+
+            # Backward pass and optimization
+            total_loss.backward()
+            optimizer.step()
+
+            epoch_class_loss += class_loss.item()
+            epoch_box_loss += box_loss.item()
+
+        print(f"Epoch {epoch + 1}/{num_epochs} - Class Loss: {epoch_class_loss:.4f}, Box Loss: {epoch_box_loss:.4f}")
+
+    return model
+
+
 if __name__ == "__main__":
-    ptDir = os.path.expanduser(
-        os.path.dirname(
-            os.path.abspath(__file__)) +
-        "/data/image_features")
-    pklDir = os.path.expanduser(
-        os.path.dirname(
-            os.path.abspath(__file__)) +
-        "/dataset/cam_box_per_image")
+    # Define dataset directories
+    pt_dir = os.path.expanduser("./data/image_features")
+    pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
 
-    print("pklDir:", pklDir)
-    print("ptDir:", ptDir)
-
-    # Align features and ground truth
-    features, ground_truth = AlignFeaturesAndGroundTruth(pklDir, ptDir)
-
-    # Create dataset and dataloader
-    dataset = PedestrianDetectorDataset(features, ground_truth)
+    # Initialize dataset and dataloader
+    dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
     dataloader = DataLoader(
         dataset,
         batch_size=16,
         shuffle=True,
-        num_workers=4)
+        num_workers=4,
+        collate_fn=custom_collate,
+    )
 
-    # Iterate through batches
-    for batch_features, batch_ground_truth in dataloader:
-        print("Batch features shape:", batch_features.shape)
-        print("Batch ground truth:", batch_ground_truth)
+    # Train the model
+    trained_model = train_model(dataloader, model_dim=256, num_classes=2, num_epochs=20, learning_rate=1e-4)

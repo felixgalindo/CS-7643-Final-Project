@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 import pickle
 
-
 class MMFusionPedestrianDetector(nn.Module):
     def __init__(self, modelDim=256, nClasses=2, nHeads=8, nLayers=6):
         super(MMFusionPedestrianDetector, self).__init__()
