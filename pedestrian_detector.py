@@ -124,38 +124,26 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
     """
     device = predicted_classes.device
     batch_size = predicted_classes.size(0)
-    image_width, image_height = 224, 224  # Example dimensions
+    image_width, image_height = 1920, 1280
     total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty = 0.0, 0.0, 0.0, 0.0
 
     for b in range(batch_size):
-        #print(f"Processing batch {b+1}/{batch_size}...")
-
         # Ground truth for the batch
         gt_classes_b = gt_classes[b][gt_classes[b] > 0]  # Exclude padding
         gt_boxes_b = gt_boxes[b][gt_classes[b] > 0]
 
         if gt_classes_b.numel() == 0:
             total_unmatched_penalty += delta * predicted_classes.size(1)  # Apply unmatched penalty
-            #print(f"Batch {b+1}: No ground truth, applying unmatched penalty.")
             continue
 
         # Diagnostics for ground truth boxes
         gt_box_min, gt_box_max = gt_boxes_b.min(), gt_boxes_b.max()
-        #print(f"Batch {b+1}: Ground Truth Boxes Range: min={gt_box_min:.4f}, max={gt_box_max:.4f}")
+        #print(f"Batch {b+1}: Ground Truth Boxes Range: min={gt_box_min:.4f}, max={gt_box_max:.4f} before norm")
 
-        # Check normalization for ground truth
-        if not (torch.max(gt_boxes_b) <= 1.0 and torch.min(gt_boxes_b) >= 0.0):
-            #print(f"Batch {b+1}: Ground truth boxes are not normalized, normalizing now.")
-            gt_boxes_b = gt_boxes_b / torch.tensor([image_width, image_height, image_width, image_height], device=device)
-
-        # Diagnostics for predicted boxes
-        # pred_box_min, pred_box_max = predicted_boxes[b].min(), predicted_boxes[b].max()
-        # print(f"Batch {b+1}: Predicted Boxes Range: min={pred_box_min:.4f}, max={pred_box_max:.4f} before norm")
-        # if not (torch.max(predicted_boxes[b]) <= 1.0 and torch.min(predicted_boxes[b]) >= 0.0):
-        #     print(f"Batch {b+1}: Predictde boxes are not normalized, normalizing now.")
-        #     predicted_boxes[b]  = predicted_boxes[b] / torch.tensor([image_width, image_height, image_width, image_height], device=device)
-        #     pred_box_min, pred_box_max = predicted_boxes[b].min(), predicted_boxes[b].max()
-        #     print(f"Batch {b+1}: Predicted Boxes Range: min={pred_box_min:.4f}, max={pred_box_max:.4f} after norm")
+        # Normalize ground truth boxes using image dimensions
+        gt_boxes_b = gt_boxes_b / torch.tensor([image_width, image_height, image_width, image_height], device=device)
+        gt_box_min, gt_box_max = gt_boxes_b.min(), gt_boxes_b.max()
+        #print(f"Batch {b+1}: Ground Truth Boxes Range: min={gt_box_min:.4f}, max={gt_box_max:.4f} after norm")
 
         # Ensure ground truth boxes are clamped to valid range
         gt_boxes_b = torch.clamp(gt_boxes_b, min=0.0, max=1.0)
@@ -183,16 +171,12 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
         if unmatched_preds > 0:
             unmatched_pred_boxes = predicted_boxes[b][len(row_indices):]
             distances_to_nearest_gt = torch.min(torch.cdist(unmatched_pred_boxes, gt_boxes_b, p=1), dim=1).values
-            #print(f"Batch {b+1}: Min distances for unmatched predictions: {distances_to_nearest_gt}")
 
         # Update totals
         total_class_loss += class_loss
         total_box_loss += box_loss
         total_cardinality_loss += cardinality_loss
         total_unmatched_penalty += delta * (unmatched_preds + unmatched_gts)/49
-
-        #print(f"Batch {b+1}: Class Loss = {class_loss:.4f}, Box Loss = {box_loss:.4f}, Cardinality Loss = {cardinality_loss:.4f}")
-        #print(f"Batch {b+1}: Unmatched Predictions = {unmatched_preds}, Unmatched Ground Truths = {unmatched_gts}")
 
     # Normalize by batch size
     total_class_loss /= batch_size
@@ -207,9 +191,8 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
         + delta * total_unmatched_penalty
     )
 
-    #print(f"Total Loss: {total_loss:.4f}, Average Class Loss: {total_class_loss:.4f}, Average Box Loss: {total_box_loss:.4f}, Average Cardinality Loss: {total_cardinality_loss:.4f}, Average Unmatched Penalty: {total_unmatched_penalty:.4f}")
-
     return total_loss, total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty
+
 
 
 def evaluate_model(model, data_loader, alpha=1.0, beta=1.0, gamma=1.0, delta=1.0):

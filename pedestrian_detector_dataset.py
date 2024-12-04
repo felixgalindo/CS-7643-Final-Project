@@ -124,9 +124,6 @@ def custom_collate(batch):
 
     return image_features, {"classes": padded_classes, "boxes": padded_boxes} 
 
-
-
-
 if __name__ == "__main__":
     pt_dir = os.path.expanduser("./data/image_features")
     pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
