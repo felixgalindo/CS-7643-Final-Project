@@ -19,7 +19,6 @@ def sinusoidal_positional_encoding(seq_len, model_dim):
     pe[:, 1::2] = torch.cos(position * div_term)
     return pe.unsqueeze(0)  # Add batch dimension
 
-# In the model initialization
 class MMFusionPedestrianDetector(nn.Module):
     def __init__(self, model_dim=256, num_classes=3, num_heads=8, num_layers=6, num_queries=20):
         super(MMFusionPedestrianDetector, self).__init__()
@@ -41,9 +40,10 @@ class MMFusionPedestrianDetector(nn.Module):
         self.box_predictor = nn.Sequential(nn.Linear(model_dim, 4), nn.Sigmoid())
         self.class_predictor = nn.Linear(model_dim, num_classes)
 
-        # Positional Encoder
-        seq_len = 500
-        self.register_buffer("positional_encoder", sinusoidal_positional_encoding(seq_len, model_dim))
+        # Positional Encoders
+        seq_len = 49 #The feature map dimensions are fixed at 7 × 7 = 49 7×7=49 spatial positions for ResNet-50 with 224 × 224 input.
+        self.register_buffer("encoder_positional_encoder", sinusoidal_positional_encoding(seq_len, model_dim))
+        self.register_buffer("decoder_positional_encoder", sinusoidal_positional_encoding(num_queries, model_dim))
 
     def forward(self, camera_features):
         # Flatten spatial dimensions
@@ -52,14 +52,14 @@ class MMFusionPedestrianDetector(nn.Module):
 
         # Encoder
         embeddings = self.cnn_projector(camera_features)
-        positional_encodings = self.positional_encoder[:, :embeddings.size(1), :].to(embeddings.device)
-        encoder_out = self.encoder(embeddings + positional_encodings)  # [batch_size, seq_len, model_dim]
-
-        # Adjust encoder output shape for the decoder
+        encoder_positional_encodings = self.encoder_positional_encoder[:, :embeddings.size(1), :].to(embeddings.device)
+        encoder_out = self.encoder(embeddings + encoder_positional_encodings)  # [batch_size, seq_len, model_dim]
         encoder_out = encoder_out.permute(1, 0, 2)  # [seq_len, batch_size, model_dim]
 
         # Decoder
         object_queries = self.object_queries.unsqueeze(0).expand(batch_size, -1, -1)  # [batch_size, num_queries, model_dim]
+        decoder_positional_encodings = self.decoder_positional_encoder[:, :self.num_queries, :].to(object_queries.device)
+        object_queries = object_queries + decoder_positional_encodings  # Add positional encodings to queries
         object_queries = object_queries.permute(1, 0, 2)  # [num_queries, batch_size, model_dim]
         decoder_out = self.decoder(object_queries, encoder_out)  # [num_queries, batch_size, model_dim]
         decoder_out = decoder_out.permute(1, 0, 2)  # [batch_size, num_queries, model_dim]
@@ -69,6 +69,7 @@ class MMFusionPedestrianDetector(nn.Module):
         boxes = self.box_predictor(decoder_out)  # [batch_size, num_queries, 4]
 
         return classes, boxes
+
 
 
 
@@ -137,7 +138,7 @@ def calculate_loss(
 
     Returns:
         total_loss: Weighted sum of all losses.
-        weighted_class_loss, weighted_giou_loss, weighted_unmatched_penalty: Individual weighted losses.
+        weighted_class_loss, weighted_box_loss, weighted_unmatched_penalty: Individual weighted losses.
         total_class_accuracy, total_box_accuracy: Metrics for classification and box regression.
         f1_metrics: Tuple containing (F1 score, precision, recall).
     """
@@ -145,26 +146,26 @@ def calculate_loss(
     batch_size = predicted_classes.size(0)
     num_queries = predicted_classes.size(1)
 
-    # Normalize ground truth boxes 
+    # Normalize ground truth boxes
     image_width, image_height = 1920, 1280
     gt_boxes = gt_boxes / torch.tensor([image_width, image_height, image_width, image_height], device=device)
     gt_boxes = torch.clamp(gt_boxes, min=0.0, max=1.0)
 
     # Initialize metrics
-    total_class_loss, total_giou_loss, total_unmatched_penalty = 0.0, 0.0, 0.0
+    total_class_loss, total_box_loss, total_unmatched_penalty = 0.0, 0.0, 0.0
     total_class_accuracy, total_box_accuracy = 0.0, 0.0
     true_positives, false_positives, false_negatives = 0, 0, 0
 
-    # Compute IoU matrices 
+    # Compute IoU matrices
     iou_matrices = [
         box_iou(convert_to_corners(predicted_boxes[b]), convert_to_corners(gt_boxes[b][gt_classes[b] > 0]))
         for b in range(batch_size)
     ]
 
-    # Perform Hungarian matching 
+    # Perform Hungarian matching
     matched_indices = [
         linear_sum_assignment(
-            iou_matrix[:, : (gt_classes[b] > 0).sum().item()].detach().cpu().numpy(), 
+            iou_matrix[:, : (gt_classes[b] > 0).sum().item()].detach().cpu().numpy(),
             maximize=True
         )
         for b, iou_matrix in enumerate(iou_matrices)
@@ -173,36 +174,40 @@ def calculate_loss(
     row_indices = [indices[0] for indices in matched_indices]
     col_indices = [indices[1] for indices in matched_indices]
 
-    # Parallelize loss and metric calculations
     for b in range(batch_size):
         gt_classes_b = gt_classes[b][gt_classes[b] > 0]
         if len(gt_classes_b) == 0:
             false_positives += num_queries
             continue
 
-        # Identify unmatched predictions and ground truths
         unmatched_pred_indices = set(range(num_queries)) - set(row_indices[b])
         unmatched_gt_indices = set(range(len(gt_classes_b))) - set(col_indices[b])
 
-        # Compute penalties for unmatched predictions and ground truths
         unmatched_pred_penalty = len(unmatched_pred_indices) * delta
         unmatched_gt_penalty = len(unmatched_gt_indices) * delta
 
-        # Matched predictions and ground truths
         matched_pred_classes = predicted_classes[b, row_indices[b]]
         matched_gt_classes = gt_classes_b[col_indices[b]]
         matched_pred_boxes = predicted_boxes[b][row_indices[b]]
         matched_gt_boxes = gt_boxes[b][gt_classes[b] > 0][col_indices[b]]
 
-        # Loss calculations
+        # Classification loss
         class_loss = nn.CrossEntropyLoss()(matched_pred_classes, matched_gt_classes).mean()
+
+        # GIoU loss
         giou_loss = generalized_box_iou_loss(
             convert_to_corners(matched_pred_boxes), convert_to_corners(matched_gt_boxes)
         ).mean()
 
+        # L1 loss
+        l1_loss = F.l1_loss(matched_pred_boxes, matched_gt_boxes, reduction="mean")
+
+        # Combine GIoU loss and L1 loss as box loss
+        box_loss = giou_loss + l1_loss
+
         # Update totals
         total_class_loss += class_loss
-        total_giou_loss += giou_loss
+        total_box_loss += box_loss
         total_unmatched_penalty += unmatched_pred_penalty + unmatched_gt_penalty
 
         # Metrics calculations
@@ -218,22 +223,21 @@ def calculate_loss(
         false_positives += len(row_indices[b]) - correct_boxes
         false_negatives += len(gt_classes_b) - correct_boxes
 
-    # Normalize losses and metrics by batch size
     total_class_loss /= batch_size
-    total_giou_loss /= batch_size
+    total_box_loss /= batch_size
     total_unmatched_penalty /= batch_size
     total_class_accuracy /= batch_size
     total_box_accuracy /= batch_size
 
     # Weighted losses
     weighted_class_loss = alpha * total_class_loss
-    weighted_giou_loss = beta * total_giou_loss
+    weighted_box_loss = beta * total_box_loss
     weighted_unmatched_penalty = delta * total_unmatched_penalty
 
-    # Combine losses with weights
-    total_loss = weighted_class_loss + weighted_giou_loss + weighted_unmatched_penalty
+    # Combine losses
+    total_loss = weighted_class_loss + weighted_box_loss + weighted_unmatched_penalty
 
-    # Compute F1 score, precision, recall
+    # F1 metrics
     precision = true_positives / (true_positives + false_positives + 1e-8)
     recall = true_positives / (true_positives + false_negatives + 1e-8)
     f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
@@ -241,7 +245,7 @@ def calculate_loss(
     return (
         total_loss,
         weighted_class_loss,
-        weighted_giou_loss,
+        weighted_box_loss,
         weighted_unmatched_penalty,
         total_class_accuracy,
         total_box_accuracy,
@@ -440,9 +444,9 @@ if __name__ == "__main__":
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
     # Create DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4, collate_fn=custom_collate)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=custom_collate)
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=custom_collate)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=custom_collate)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=8, collate_fn=custom_collate)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, num_workers=8, collate_fn=custom_collate)
 
     # # Initialize model and optimizer
     # model_dim = 256
@@ -457,13 +461,13 @@ if __name__ == "__main__":
     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  # Higher initial learning rate
 
     # Initialize model and optimizer
-    model_dim = 128  
-    num_layers = 4   
-    num_heads = 4    
+    model_dim = 256  
+    num_layers = 6
+    num_heads = 8    
     model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
 
     # Optimizer 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=10e-4)
 
     # Learning rate scheduler
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
