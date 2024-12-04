@@ -94,7 +94,7 @@ class PedestrianDetectorDataset(Dataset):
         # Load the .pt file
         image_features = torch.load(pt_path, weights_only=False)
 
-        return image_features, ground_truth #classes [batch size, 7x7=49, num classes=2] boxes [batch size, 7x7=49, num classes=4(x,y,w,h)] 
+        return image_features, ground_truth #classes [batch size, 7x7=49, num classes=3] boxes [batch size, 7x7=49, num classes=4(x,y,w,h)] 
     
 def custom_collate(batch):
     batch = [item for item in batch if item is not None]  # Filter out None samples
