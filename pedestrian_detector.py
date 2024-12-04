@@ -7,7 +7,8 @@ from tqdm import tqdm
 from pedestrian_detector_dataset import PedestrianDetectorDataset, custom_collate
 from scipy.optimize import linear_sum_assignment
 import numpy as np
-
+import torch.nn.functional as F
+from torchvision.ops import box_iou
 
 class MMFusionPedestrianDetector(nn.Module):
     def __init__(self, model_dim=256, num_classes=3, num_heads=8, num_layers=6):
@@ -51,7 +52,6 @@ class MMFusionPedestrianDetector(nn.Module):
 
         return classes, boxes
 
-
 def compute_iou(box1, box2):
     """
     Compute IoU between two bounding boxes.
@@ -94,127 +94,119 @@ def compute_iou_matrix(pred_boxes, gt_boxes):
 
     return iou_matrix
 
-
-def compute_losses(predicted_classes, predicted_boxes, ground_truth_classes, ground_truth_boxes):
+def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alpha=1.0, beta=1.0, gamma=1.0, delta=1.0):
     """
-    Compute classification, bounding box regression, and cardinality losses.
+    Calculate classification, box regression, cardinality losses, and unmatched penalties.
 
     Args:
-        predicted_classes: Predicted class logits for the batch.
-        predicted_boxes: Predicted bounding boxes for the batch.
-        ground_truth_classes: Ground truth class labels for the batch.
-        ground_truth_boxes: Ground truth bounding boxes for the batch.
+        predicted_classes: Tensor of predicted class logits.
+        predicted_boxes: Tensor of predicted bounding boxes.
+        gt_classes: Ground truth class labels.
+        gt_boxes: Ground truth bounding boxes.
 
     Returns:
-        Tuple of (class_loss, box_loss, cardinality_loss) for the batch.
+        total_loss, class_loss, box_loss, cardinality_loss, unmatched_penalty
     """
-    device = predicted_classes.device  # Ensure computations happen on the correct device
-
-    #Init losses
-    class_loss = 0.0
-    box_loss = 0.0
-    cardinality_loss = 0.0
-    batch_size = ground_truth_classes.size(0)
+    device = predicted_classes.device
+    batch_size = predicted_classes.size(0)
+    total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty = 0.0, 0.0, 0.0, 0.0
 
     for b in range(batch_size):
-        gt_classes = ground_truth_classes[b, :].detach().cpu().numpy()
-        gt_boxes = ground_truth_boxes[b, :].detach().cpu().numpy()
-        pred_boxes = predicted_boxes[b, :].detach().cpu().numpy()
-        pred_classes = predicted_classes[b, :]
+        # Ground truth for the batch
+        gt_classes_b = gt_classes[b][gt_classes[b] > 0]  # Exclude padding
+        gt_boxes_b = gt_boxes[b][gt_classes[b] > 0]
 
-        # Mask valid ground truth objects
-        valid_gt_mask = gt_classes > 0 #0 is padding
-        gt_classes = gt_classes[valid_gt_mask]
-        gt_boxes = gt_boxes[valid_gt_mask]
+        if gt_classes_b.numel() == 0:
+            total_unmatched_penalty += delta * predicted_classes.size(1)  # Apply unmatched penalty
+            continue
 
-        if len(gt_classes) == 0:
-            continue  # Skip if no valid ground truth
+        # Predicted values for the batch
+        pred_boxes_b = predicted_boxes[b].detach().cpu().numpy()
+        gt_boxes_b = gt_boxes_b.detach().cpu().numpy()
+        iou_matrix = compute_iou_matrix(pred_boxes_b, gt_boxes_b)
 
-        # Compute IoU matrix which tells you overlap between predicted and ground truth boxes
-        iou_matrix = compute_iou_matrix(pred_boxes, gt_boxes)
-
-        # Match predictions to ground truth
-        #Since, the order of the predictions may differ from ground truth, this will run Hungarian algorithm to find the best index matches 
         row_indices, col_indices = linear_sum_assignment(-iou_matrix)
-
-        matched_pred_classes = pred_classes[row_indices]
-        matched_gt_classes = torch.tensor(gt_classes[col_indices], dtype=torch.long).to(device)
+        matched_pred_classes = predicted_classes[b, row_indices]
+        matched_gt_classes = torch.tensor(gt_classes_b[col_indices], dtype=torch.long, device=device)
         matched_pred_boxes = predicted_boxes[b, row_indices]
-        matched_gt_boxes = torch.tensor(gt_boxes[col_indices], dtype=torch.float).to(device)
+        matched_gt_boxes = torch.tensor(gt_boxes_b[col_indices], dtype=torch.float, device=device)
 
-        # Compute classification and box losses
-        class_loss += nn.CrossEntropyLoss(ignore_index=0)(matched_pred_classes, matched_gt_classes).mean()
-        box_loss += nn.SmoothL1Loss()(matched_pred_boxes, matched_gt_boxes).mean()
+        # Loss calculations
+        class_loss = nn.CrossEntropyLoss()(matched_pred_classes, matched_gt_classes).mean()
+        box_loss = nn.SmoothL1Loss()(matched_pred_boxes, matched_gt_boxes).mean()
+        cardinality_loss = abs(len(row_indices) - len(gt_classes_b))
 
-        # Compute cardinality loss
-        num_gt_objects = len(gt_classes)
-        num_pred_objects = len(row_indices)  # Number of matched predictions
-        cardinality_penalty = abs(num_pred_objects - num_gt_objects)
-        cardinality_loss += torch.tensor(cardinality_penalty, dtype=torch.float, device=device)
+        # Update totals
+        total_class_loss += class_loss
+        total_box_loss += box_loss
+        total_cardinality_loss += cardinality_loss
+        unmatched_preds = len(predicted_boxes[b]) - len(row_indices)
+        unmatched_gts = len(gt_classes_b) - len(col_indices)
+        total_unmatched_penalty += delta * (unmatched_preds + unmatched_gts)
 
-    # Normalize losses by batch size
-    class_loss /= batch_size
-    box_loss /= batch_size
-    cardinality_loss /= batch_size
+    # Normalize by batch size
+    total_class_loss /= batch_size
+    total_box_loss /= batch_size
+    total_cardinality_loss /= batch_size
+    total_unmatched_penalty /= batch_size
 
-    return class_loss, box_loss, cardinality_loss
+    total_loss = (
+        alpha * total_class_loss
+        + beta * total_box_loss
+        + gamma * total_cardinality_loss
+        + delta * total_unmatched_penalty
+    )
+    return total_loss, total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty
 
 
-def evaluate_model(val_loader, model):
-    """
-    Evaluate the model on the validation set.
-
-    Returns:
-        Tuple of (avg_class_loss, avg_box_loss, avg_cardinality_loss).
-    """
-    total_class_loss = 0.0
-    total_box_loss = 0.0
-    total_cardinality_loss = 0.0
+def evaluate_model(model, data_loader, alpha=1.0, beta=0.02, gamma=1.0, delta=1.0):
+    model.eval()
+    total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_loss = 0.0, 0.0, 0.0, 0.0
+    num_batches = 0
 
     with torch.no_grad():
-        for batch_features, batch_ground_truth in val_loader:
-            predicted_classes, predicted_boxes = model(batch_features)
-            class_loss, box_loss, cardinality_loss = compute_losses(
-                predicted_classes, predicted_boxes,
-                batch_ground_truth["classes"], batch_ground_truth["boxes"]
-            )
-            total_class_loss += class_loss.item()
-            total_box_loss += box_loss.item()
-            total_cardinality_loss += cardinality_loss.item()
+        with tqdm(total=len(data_loader), desc="Evaluating") as pbar:
+            for batch_features, batch_ground_truth in data_loader:
+                predicted_classes, predicted_boxes = model(batch_features)
+                valid_mask = batch_ground_truth["classes"] > 0  # Exclude padded entries
 
-    avg_class_loss = total_class_loss / len(val_loader)
-    avg_box_loss = total_box_loss / len(val_loader)
-    avg_cardinality_loss = total_cardinality_loss / len(val_loader)
+                _, class_loss, box_loss, cardinality_loss, unmatched_loss = calculate_loss(
+                    predicted_classes=predicted_classes,
+                    predicted_boxes=predicted_boxes,
+                    gt_classes=batch_ground_truth["classes"],
+                    gt_boxes=batch_ground_truth["boxes"],
+                    alpha=alpha,
+                    beta=beta,
+                    gamma=gamma,
+                    delta=delta
+                )
 
-    return avg_class_loss, avg_box_loss, avg_cardinality_loss
+                # Accumulate losses
+                total_class_loss += class_loss
+                total_box_loss += box_loss
+                total_cardinality_loss += cardinality_loss
+                total_unmatched_loss += unmatched_loss
+                num_batches += 1
+                pbar.update(1)
+
+    # Average losses
+    avg_class_loss = total_class_loss / num_batches
+    avg_box_loss = total_box_loss / num_batches
+    avg_cardinality_loss = total_cardinality_loss / num_batches
+    avg_unmatched_loss = total_unmatched_loss / num_batches
+
+    print(f"Validation Results: Class Loss = {avg_class_loss:.4f}, "
+          f"Box Loss = {avg_box_loss:.4f}, "
+          f"Cardinality Loss = {avg_cardinality_loss:.4f}, "
+          f"Unmatched Loss = {avg_unmatched_loss:.4f}")
 
 
-
-def train_model(train_loader, val_loader, model_dim=256, num_epochs=20, learning_rate=1e-4):
-    """
-    Train the MMFusionPedestrianDetector model.
-
-    Args:
-        train_loader (DataLoader): Training data loader.
-        val_loader (DataLoader): Validation data loader.
-        model_dim (int): Model dimension.
-        num_epochs (int): Number of epochs to train.
-        learning_rate (float): Learning rate for optimizer.
-
-    Returns:
-        nn.Module: Trained model.
-    """
-    model = MMFusionPedestrianDetector(model_dim)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
+def train_model(model, optimizer, train_loader, val_loader, num_epochs, alpha=1.0, beta=0.02, gamma=1.0, delta=1.0):
+    model.train()
     for epoch in range(num_epochs):
+        epoch_class_loss, epoch_box_loss, epoch_cardinality_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0, 0.0
+        num_batches = 0
 
-        #Init losses
-        epoch_class_loss = 0.0
-        epoch_box_loss = 0.0
-        epoch_cardinality_loss = 0.0
-
-        model.train()
         with tqdm(total=len(train_loader), desc=f"Epoch {epoch + 1}/{num_epochs}") as pbar:
             for batch_features, batch_ground_truth in train_loader:
                 optimizer.zero_grad()
@@ -222,63 +214,49 @@ def train_model(train_loader, val_loader, model_dim=256, num_epochs=20, learning
                 # Forward pass
                 predicted_classes, predicted_boxes = model(batch_features)
 
-                # Compute losses
-                class_loss, box_loss, cardinality_loss = compute_losses(
-                    predicted_classes,
-                    predicted_boxes,
-                    batch_ground_truth["classes"],
-                    batch_ground_truth["boxes"]
+                # Calculate losses
+                total_loss, class_loss, box_loss, cardinality_loss, unmatched_loss = calculate_loss(
+                    predicted_classes=predicted_classes,
+                    predicted_boxes=predicted_boxes,
+                    gt_classes=batch_ground_truth["classes"],
+                    gt_boxes=batch_ground_truth["boxes"],
+                    alpha=alpha,
+                    beta=beta,
+                    gamma=gamma,
+                    delta=delta
                 )
-                # Iterate through each batch element
-                for b in range(batch_ground_truth["classes"].size(0)):  # Iterate over batch size
-                    # Extract ground truth and predictions for the current element
-                    gt_classes = batch_ground_truth["classes"][b]
-                    pred_classes = torch.argmax(predicted_classes[b], dim=-1)  # Get predicted class labels
 
-                    # Check if there's any non-pedestrian class (2) in ground truth or predictions
-                    if 2 in gt_classes or 2 in pred_classes:
-                        print(f"Batch index {b}:")
-                        print("Ground truth classes:", gt_classes.tolist())
-                        print("Predicted classes:", pred_classes.tolist())
-
-
-                # Apply log transformation to reduce scale
-                box_loss = torch.log(1 + box_loss)
-
-                # Backprop and optimization
-                total_loss = class_loss + box_loss + cardinality_loss
+                # Backward pass
                 total_loss.backward()
                 optimizer.step()
 
-                # Add up the losses
+                # Accumulate losses
                 epoch_class_loss += class_loss.item()
                 epoch_box_loss += box_loss.item()
-                epoch_cardinality_loss += cardinality_loss.item()
+                epoch_cardinality_loss += cardinality_loss
+                epoch_unmatched_loss += unmatched_loss
+                num_batches += 1
 
                 # Update progress bar
                 pbar.set_postfix({
-                    "Class Loss": f"{class_loss.item():.4f}",
-                    "Box Loss": f"{box_loss.item():.4f}",
-                    "Cardinality Loss": f"{cardinality_loss.item():.4f}"
+                    "Class Loss": f"{epoch_class_loss / num_batches:.4f}",
+                    "Box Loss": f"{epoch_box_loss / num_batches:.4f}",
+                    "Cardinality Loss": f"{epoch_cardinality_loss / num_batches:.4f}",
+                    "Unmatched Loss": f"{epoch_unmatched_loss / num_batches:.4f}"
                 })
                 pbar.update(1)
 
-        # Print epoch summary
-        print(f"Epoch {epoch + 1}/{num_epochs}, "
-              f"Class Loss: {epoch_class_loss:.4f}, "
-              f"Box Loss: {epoch_box_loss:.4f}, "
-              f"Cardinality Loss: {epoch_cardinality_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{num_epochs}: "
+              f"Class Loss = {epoch_class_loss / num_batches:.4f}, "
+              f"Box Loss = {epoch_box_loss / num_batches:.4f}, "
+              f"Cardinality Loss = {epoch_cardinality_loss / num_batches:.4f}, "
+              f"Unmatched Loss = {epoch_unmatched_loss / num_batches:.4f}")
 
-        # Run validation for the model
-        model.eval()
-        val_class_loss, val_box_loss, val_cardinality_loss = evaluate_model(val_loader, model)
-        print(f"Validation Class Loss: {val_class_loss:.4f}, "
-              f"Box Loss: {val_box_loss:.4f}, "
-              f"Cardinality Loss: {val_cardinality_loss:.4f}")
+        # Evaluate on validation data
+        print("Validating on validation data...")
+        evaluate_model(model, val_loader, alpha, beta, gamma, delta)
 
     return model
-
-
 
 
 if __name__ == "__main__":
@@ -289,7 +267,7 @@ if __name__ == "__main__":
     # Initialize dataset
     dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
 
-    # Split the datasets for training,validation,testing
+    # Split the datasets for training, validation, and testing
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))
     test_size = len(dataset) - train_size - val_size
@@ -300,11 +278,21 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=custom_collate)
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=custom_collate)
 
+    # Initialize model and optimizer
+    model_dim = 256
+    model = MMFusionPedestrianDetector(model_dim)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
     # Train the model
     print("Starting training...")
-    trained_model = train_model(train_loader, val_loader)
+    trained_model = train_model(
+        model=model,
+        optimizer=optimizer,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        num_epochs=20
+    )
 
-    # Test the model
+    # Evaluate the model on the test set
     print("Evaluating on test set...")
-    test_class_loss, test_box_loss, test_cardinality_loss = evaluate_model(test_loader, trained_model)
-    print(f"Test - Class Loss: {test_class_loss:.4f}, Box Loss: {test_box_loss:.4f}, Cardinality Loss: {test_cardinality_loss:.4f}")
+    evaluate_model(trained_model, test_loader, alpha=1.0, beta=0.02, gamma=1.0, delta=1.0)
