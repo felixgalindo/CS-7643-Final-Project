@@ -10,6 +10,15 @@ import numpy as np
 import torch.nn.functional as F
 from torchvision.ops import box_iou
 
+def sinusoidal_positional_encoding(seq_len, model_dim):
+    position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+    div_term = torch.exp(torch.arange(0, model_dim, 2).float() * (-torch.log(torch.tensor(10000.0)) / model_dim))
+    pe = torch.zeros(seq_len, model_dim)
+    pe[:, 0::2] = torch.sin(position * div_term)
+    pe[:, 1::2] = torch.cos(position * div_term)
+    return pe.unsqueeze(0)  # Add batch dimension
+
+# In the model initialization
 class MMFusionPedestrianDetector(nn.Module):
     def __init__(self, model_dim=256, num_classes=3, num_heads=8, num_layers=6):
         super(MMFusionPedestrianDetector, self).__init__()
@@ -24,11 +33,17 @@ class MMFusionPedestrianDetector(nn.Module):
         )
 
         # Predictors
-        self.box_predictor = nn.Linear(model_dim, 4)  # x, y, width, height
+        #self.box_predictor = nn.Linear(model_dim, 4)  # x, y, width, height
+        self.box_predictor = nn.Sequential(
+            nn.Linear(model_dim, 4),  # x, y, width, height
+            nn.Sigmoid()  # Constrain outputs to [0, 1]
+        )
         self.class_predictor = nn.Linear(model_dim, num_classes)  # Pedestrian, vehicle, padding
 
         # Positional Encoder
-        self.positional_encoder = nn.Parameter(torch.zeros(1, 500, model_dim))
+        seq_len = 500  # Adjust based on expected input size
+        self.register_buffer("positional_encoder", sinusoidal_positional_encoding(seq_len, model_dim))
+
 
     def forward(self, camera_features):
         """
@@ -42,7 +57,7 @@ class MMFusionPedestrianDetector(nn.Module):
         embeddings = self.cnn_projector(camera_features)
 
         # Add positional encodings
-        positional_encodings = self.positional_encoder[:, :embeddings.size(1), :]
+        positional_encodings = self.positional_encoder[:, :embeddings.size(1), :].to(embeddings.device)
         transformer_input = embeddings + positional_encodings
 
         # Transformer output
@@ -113,39 +128,71 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
     total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty = 0.0, 0.0, 0.0, 0.0
 
     for b in range(batch_size):
+        #print(f"Processing batch {b+1}/{batch_size}...")
+
         # Ground truth for the batch
         gt_classes_b = gt_classes[b][gt_classes[b] > 0]  # Exclude padding
         gt_boxes_b = gt_boxes[b][gt_classes[b] > 0]
 
         if gt_classes_b.numel() == 0:
             total_unmatched_penalty += delta * predicted_classes.size(1)  # Apply unmatched penalty
+            #print(f"Batch {b+1}: No ground truth, applying unmatched penalty.")
             continue
 
-        # Normalize boxes to relative coordinates
-        pred_boxes_b = predicted_boxes[b] / torch.tensor([image_width, image_height, image_width, image_height], device=device)
-        gt_boxes_b = gt_boxes_b / torch.tensor([image_width, image_height, image_width, image_height], device=device)
+        # Diagnostics for ground truth boxes
+        gt_box_min, gt_box_max = gt_boxes_b.min(), gt_boxes_b.max()
+        #print(f"Batch {b+1}: Ground Truth Boxes Range: min={gt_box_min:.4f}, max={gt_box_max:.4f}")
 
-        # Compute IoU matrix
-        iou_matrix = compute_iou_matrix(pred_boxes_b.detach().cpu().numpy(), gt_boxes_b.detach().cpu().numpy())
+        # Check normalization for ground truth
+        if not (torch.max(gt_boxes_b) <= 1.0 and torch.min(gt_boxes_b) >= 0.0):
+            #print(f"Batch {b+1}: Ground truth boxes are not normalized, normalizing now.")
+            gt_boxes_b = gt_boxes_b / torch.tensor([image_width, image_height, image_width, image_height], device=device)
 
-        row_indices, col_indices = linear_sum_assignment(-iou_matrix)
+        # Diagnostics for predicted boxes
+        # pred_box_min, pred_box_max = predicted_boxes[b].min(), predicted_boxes[b].max()
+        # print(f"Batch {b+1}: Predicted Boxes Range: min={pred_box_min:.4f}, max={pred_box_max:.4f} before norm")
+        # if not (torch.max(predicted_boxes[b]) <= 1.0 and torch.min(predicted_boxes[b]) >= 0.0):
+        #     print(f"Batch {b+1}: Predictde boxes are not normalized, normalizing now.")
+        #     predicted_boxes[b]  = predicted_boxes[b] / torch.tensor([image_width, image_height, image_width, image_height], device=device)
+        #     pred_box_min, pred_box_max = predicted_boxes[b].min(), predicted_boxes[b].max()
+        #     print(f"Batch {b+1}: Predicted Boxes Range: min={pred_box_min:.4f}, max={pred_box_max:.4f} after norm")
+
+        # Ensure ground truth boxes are clamped to valid range
+        gt_boxes_b = torch.clamp(gt_boxes_b, min=0.0, max=1.0)
+
+        # Compute pairwise box distances
+        l1_distances = torch.cdist(predicted_boxes[b], gt_boxes_b, p=1)  # L1 distances
+
+        # Use Hungarian matching to find the best assignment
+        cost_matrix = l1_distances.detach().cpu().numpy()
+        row_indices, col_indices = linear_sum_assignment(cost_matrix)
+
         matched_pred_classes = predicted_classes[b, row_indices]
         matched_gt_classes = torch.tensor(gt_classes_b[col_indices], dtype=torch.long, device=device)
-        matched_pred_boxes = pred_boxes_b[row_indices]
-        matched_gt_boxes = torch.tensor(gt_boxes_b[col_indices], dtype=torch.float, device=device)
+        matched_pred_boxes = predicted_boxes[b][row_indices]
+        matched_gt_boxes = gt_boxes_b[col_indices]
 
         # Loss calculations
         class_loss = nn.CrossEntropyLoss()(matched_pred_classes, matched_gt_classes).mean()
         box_loss = nn.SmoothL1Loss()(matched_pred_boxes, matched_gt_boxes).mean()
         cardinality_loss = abs(len(row_indices) - len(gt_classes_b))
 
+        # Debugging unmatched predictions
+        unmatched_preds = len(predicted_boxes[b]) - len(row_indices)
+        unmatched_gts = len(gt_classes_b) - len(col_indices)
+        if unmatched_preds > 0:
+            unmatched_pred_boxes = predicted_boxes[b][len(row_indices):]
+            distances_to_nearest_gt = torch.min(torch.cdist(unmatched_pred_boxes, gt_boxes_b, p=1), dim=1).values
+            #print(f"Batch {b+1}: Min distances for unmatched predictions: {distances_to_nearest_gt}")
+
         # Update totals
         total_class_loss += class_loss
         total_box_loss += box_loss
         total_cardinality_loss += cardinality_loss
-        unmatched_preds = len(predicted_boxes[b]) - len(row_indices)
-        unmatched_gts = len(gt_classes_b) - len(col_indices)
-        total_unmatched_penalty += delta * (unmatched_preds + unmatched_gts)
+        total_unmatched_penalty += delta * (unmatched_preds + unmatched_gts)/49
+
+        #print(f"Batch {b+1}: Class Loss = {class_loss:.4f}, Box Loss = {box_loss:.4f}, Cardinality Loss = {cardinality_loss:.4f}")
+        #print(f"Batch {b+1}: Unmatched Predictions = {unmatched_preds}, Unmatched Ground Truths = {unmatched_gts}")
 
     # Normalize by batch size
     total_class_loss /= batch_size
@@ -159,11 +206,13 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
         + gamma * total_cardinality_loss
         + delta * total_unmatched_penalty
     )
+
+    #print(f"Total Loss: {total_loss:.4f}, Average Class Loss: {total_class_loss:.4f}, Average Box Loss: {total_box_loss:.4f}, Average Cardinality Loss: {total_cardinality_loss:.4f}, Average Unmatched Penalty: {total_unmatched_penalty:.4f}")
+
     return total_loss, total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty
 
 
-
-def evaluate_model(model, data_loader, alpha=1.0, beta=0.02, gamma=1.0, delta=1.0):
+def evaluate_model(model, data_loader, alpha=1.0, beta=1.0, gamma=1.0, delta=1.0):
     model.eval()
     total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_loss = 0.0, 0.0, 0.0, 0.0
     num_batches = 0
@@ -205,7 +254,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=0.02, gamma=1.0, delta=1.
           f"Unmatched Loss = {avg_unmatched_loss:.4f}")
 
 
-def train_model(model, optimizer, train_loader, val_loader, num_epochs, alpha=1.0, beta=0.02, gamma=1.0, delta=1.0):
+def train_model(model, optimizer, train_loader, val_loader, num_epochs, alpha=1.0, beta=1.0, gamma=1.0, delta=1.0):
     model.train()
     for epoch in range(num_epochs):
         epoch_class_loss, epoch_box_loss, epoch_cardinality_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0, 0.0
