@@ -109,6 +109,7 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
     """
     device = predicted_classes.device
     batch_size = predicted_classes.size(0)
+    image_width, image_height = 224, 224  # Example dimensions
     total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty = 0.0, 0.0, 0.0, 0.0
 
     for b in range(batch_size):
@@ -120,15 +121,17 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
             total_unmatched_penalty += delta * predicted_classes.size(1)  # Apply unmatched penalty
             continue
 
-        # Predicted values for the batch
-        pred_boxes_b = predicted_boxes[b].detach().cpu().numpy()
-        gt_boxes_b = gt_boxes_b.detach().cpu().numpy()
-        iou_matrix = compute_iou_matrix(pred_boxes_b, gt_boxes_b)
+        # Normalize boxes to relative coordinates
+        pred_boxes_b = predicted_boxes[b] / torch.tensor([image_width, image_height, image_width, image_height], device=device)
+        gt_boxes_b = gt_boxes_b / torch.tensor([image_width, image_height, image_width, image_height], device=device)
+
+        # Compute IoU matrix
+        iou_matrix = compute_iou_matrix(pred_boxes_b.detach().cpu().numpy(), gt_boxes_b.detach().cpu().numpy())
 
         row_indices, col_indices = linear_sum_assignment(-iou_matrix)
         matched_pred_classes = predicted_classes[b, row_indices]
         matched_gt_classes = torch.tensor(gt_classes_b[col_indices], dtype=torch.long, device=device)
-        matched_pred_boxes = predicted_boxes[b, row_indices]
+        matched_pred_boxes = pred_boxes_b[row_indices]
         matched_gt_boxes = torch.tensor(gt_boxes_b[col_indices], dtype=torch.float, device=device)
 
         # Loss calculations
@@ -157,6 +160,7 @@ def calculate_loss(predicted_classes, predicted_boxes, gt_classes, gt_boxes, alp
         + delta * total_unmatched_penalty
     )
     return total_loss, total_class_loss, total_box_loss, total_cardinality_loss, total_unmatched_penalty
+
 
 
 def evaluate_model(model, data_loader, alpha=1.0, beta=0.02, gamma=1.0, delta=1.0):
