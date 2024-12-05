@@ -2,6 +2,7 @@ import os
 import torch
 from torch.utils.data import Dataset, DataLoader
 import pickle
+import numpy as np
 
 
 class PedestrianDetectorDataset(Dataset):
@@ -39,7 +40,7 @@ class PedestrianDetectorDataset(Dataset):
 
                     if os.path.exists(pt_path):
                         valid_samples.append((pkl_path, pt_path))
-
+        np.random.shuffle(valid_samples)
         return valid_samples
 
     def _construct_pt_path(self, pkl_path):
@@ -79,32 +80,45 @@ class PedestrianDetectorDataset(Dataset):
             print(f"Ground truth content: {ground_truth}")
             return None
 
-        # Map classes: 0 for background, 1 for vehicles, 2 for pedestrians
+        # Map classes: 1 for vehicles, 0 for background
         mapped_classes = [
-            1 if cls == 1 else  # Vehicle
-            2 if cls == 2 else  # Pedestrian
-            0  # Background
+            1 if cls == 1 else 0  # 1 for vehicle, 0 for background
             for cls in ground_truth["classes"]
         ]
-
-        # unique_classes = set(mapped_classes)
-        # if not unique_classes.issubset({0, 1, 2}):
-        #     print(f"Warning: Found unexpected classes in sample {idx} at {pkl_path}: {unique_classes - {0, 1, 2}}")
 
         # Replace ground truth classes with the mapped classes
         ground_truth["classes"] = mapped_classes
 
-        # Validate and clean up box structures
-        for i, box in enumerate(ground_truth["boxes"]):
+        # Filter out non-vehicle boxes and classes
+        vehicle_boxes = []
+        vehicle_classes = []
+
+        for cls, box in zip(ground_truth["classes"], ground_truth["boxes"]):
+            if cls == 1:  # Keep only vehicles
+                vehicle_classes.append(cls)
+                vehicle_boxes.append(box)
+
+        # If no vehicles are present, return empty annotations
+        if not vehicle_classes:
+            vehicle_classes = []
+            vehicle_boxes = []
+
+        # Validate box structures
+        for i, box in enumerate(vehicle_boxes):
             if len(box) != 4:
                 print(f"Unexpected box length at index {i}: {box} (length: {len(box)}) in {pkl_path}")
             if not isinstance(box, (tuple, list)):
                 print(f"Unexpected box type at index {i}: {type(box)} in {pkl_path}")
 
+        # Update ground truth with filtered data
+        ground_truth["classes"] = vehicle_classes
+        ground_truth["boxes"] = vehicle_boxes
+
         # Load the .pt file
         image_features = torch.load(pt_path, weights_only=False)
 
-        return image_features, ground_truth  # [image_features], [ground_truth classes and boxes]
+        return image_features, ground_truth  # [image_features], [filtered ground_truth classes and boxes]
+
 
     
 def custom_collate(batch):
@@ -136,7 +150,7 @@ def custom_collate(batch):
     return image_features, {"classes": padded_classes, "boxes": padded_boxes} 
 
 if __name__ == "__main__":
-    pt_dir = os.path.expanduser("./data/image_features")
+    pt_dir = os.path.expanduser("./data/image_features_more_layers")
     pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
 
     print("pkl_dir:", pkl_dir)
