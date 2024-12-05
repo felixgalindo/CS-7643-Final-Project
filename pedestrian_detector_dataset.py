@@ -79,10 +79,20 @@ class PedestrianDetectorDataset(Dataset):
             print(f"Ground truth content: {ground_truth}")
             return None
 
-        # Normalize classes
-        ground_truth["classes"] = [
-            1 if cls == 1 else (0 if cls == 0 else 2) for cls in ground_truth["classes"]
+        # Map classes: 0 for background, 1 for vehicles, 2 for pedestrians
+        mapped_classes = [
+            1 if cls == 1 else  # Vehicle
+            2 if cls == 2 else  # Pedestrian
+            0  # Background
+            for cls in ground_truth["classes"]
         ]
+
+        # unique_classes = set(mapped_classes)
+        # if not unique_classes.issubset({0, 1, 2}):
+        #     print(f"Warning: Found unexpected classes in sample {idx} at {pkl_path}: {unique_classes - {0, 1, 2}}")
+
+        # Replace ground truth classes with the mapped classes
+        ground_truth["classes"] = mapped_classes
 
         # Validate and clean up box structures
         for i, box in enumerate(ground_truth["boxes"]):
@@ -94,7 +104,8 @@ class PedestrianDetectorDataset(Dataset):
         # Load the .pt file
         image_features = torch.load(pt_path, weights_only=False)
 
-        return image_features, ground_truth #classes [batch size, 7x7=49, num classes=3] boxes [batch size, 7x7=49, num classes=4(x,y,w,h)] 
+        return image_features, ground_truth  # [image_features], [ground_truth classes and boxes]
+
     
 def custom_collate(batch):
     batch = [item for item in batch if item is not None]  # Filter out None samples
@@ -116,8 +127,8 @@ def custom_collate(batch):
     for gt in ground_truth:
         num_objects = len(gt["classes"])
 
-        padded_classes.append(torch.tensor(gt["classes"] + [0] * (max_objects - num_objects)))
-        padded_boxes.append(torch.tensor(gt["boxes"] + [[0, 0, 0, 0]] * (max_objects - num_objects)))
+        padded_classes.append(torch.tensor(gt["classes"] + [-1] * (max_objects - num_objects)))
+        padded_boxes.append(torch.tensor(gt["boxes"] + [[-1, -1, -1, -1]] * (max_objects - num_objects)))
 
     padded_classes = torch.stack(padded_classes)
     padded_boxes = torch.stack(padded_boxes)

@@ -117,7 +117,7 @@ def convert_to_corners(boxes):
     return torch.stack([x1, y1, x2, y2], dim=-1)
 
 
-def calculate_loss(
+def calculate_loss_metrics(
     predicted_classes,
     predicted_boxes,
     gt_classes,
@@ -128,19 +128,7 @@ def calculate_loss(
     iou_threshold=0.5,
 ):
     """
-    Calculate losses and metrics
-
-    Args:
-        predicted_classes: Tensor of predicted class logits.
-        predicted_boxes: Tensor of predicted bounding boxes.
-        gt_classes: Ground truth class labels.
-        gt_boxes: Ground truth bounding boxes.
-
-    Returns:
-        total_loss: Weighted sum of all losses.
-        weighted_class_loss, weighted_box_loss, weighted_unmatched_penalty: Individual weighted losses.
-        total_class_accuracy, total_box_accuracy: Metrics for classification and box regression.
-        f1_metrics: Tuple containing (F1 score, precision, recall).
+    Calculate losses and metrics with enhanced debugging.
     """
     device = predicted_classes.device
     batch_size = predicted_classes.size(0)
@@ -151,56 +139,78 @@ def calculate_loss(
     gt_boxes = gt_boxes / torch.tensor([image_width, image_height, image_width, image_height], device=device)
     gt_boxes = torch.clamp(gt_boxes, min=0.0, max=1.0)
 
-    # Initialize metrics
+    # print(f"Predicted classes shape: {predicted_classes.shape}")
+    # print(f"Predicted boxes shape: {predicted_boxes.shape}")
+    # print(f"Ground truth classes shape: {gt_classes.shape}")
+    # print(f"Ground truth boxes shape: {gt_boxes.shape}")
+    # print(f"GT classes before filtering: {gt_classes}")
+
+    # Filter out padding (-1) values from ground truth
+    valid_gt_mask = gt_classes >= 0
+    filtered_gt_classes = [gt_classes[b][valid_gt_mask[b]] for b in range(batch_size)]
+    filtered_gt_boxes = [gt_boxes[b][valid_gt_mask[b]] for b in range(batch_size)]
+
+    # print(f"Filtered GT classes: {[c.tolist() for c in filtered_gt_classes]}")
+    # print(f"Filtered GT boxes: {[len(b) for b in filtered_gt_boxes]}")
+
+    # Validate class range
+    for b, c in enumerate(filtered_gt_classes):
+        if not torch.all((c >= 0) & (c < predicted_classes.size(-1))):
+            raise ValueError(
+                f"Batch {b}: GT classes contain values out of range! Classes: {c.tolist()}."
+            )
+
+    # Compute IoU matrices
+    iou_matrices = [
+        box_iou(
+            convert_to_corners(predicted_boxes[b]),
+            convert_to_corners(filtered_gt_boxes[b]) if len(filtered_gt_boxes[b]) > 0 else torch.zeros((0, 4), device=device),
+        )
+        for b in range(batch_size)
+    ]
+
+    matched_indices = [
+        linear_sum_assignment(
+            iou_matrix[:, : len(filtered_gt_classes[b])].detach().cpu().numpy(),
+            maximize=True
+        ) if len(filtered_gt_classes[b]) > 0 else ([], [])
+        for b, iou_matrix in enumerate(iou_matrices)
+    ]
+
     total_class_loss, total_box_loss, total_unmatched_penalty = 0.0, 0.0, 0.0
     total_class_accuracy, total_box_accuracy = 0.0, 0.0
     true_positives, false_positives, false_negatives = 0, 0, 0
 
-    # Compute IoU matrices
-    iou_matrices = [
-        box_iou(convert_to_corners(predicted_boxes[b]), convert_to_corners(gt_boxes[b][gt_classes[b] > 0]))
-        for b in range(batch_size)
-    ]
-
-    # Perform Hungarian matching
-    matched_indices = [
-        linear_sum_assignment(
-            iou_matrix[:, : (gt_classes[b] > 0).sum().item()].detach().cpu().numpy(),
-            maximize=True
-        )
-        for b, iou_matrix in enumerate(iou_matrices)
-    ]
-
-    row_indices = [indices[0] for indices in matched_indices]
-    col_indices = [indices[1] for indices in matched_indices]
-
-    for b in range(batch_size):
-        gt_classes_b = gt_classes[b][gt_classes[b] > 0]
-        if len(gt_classes_b) == 0:
+    for b, (row_indices, col_indices) in enumerate(matched_indices):
+        if len(filtered_gt_classes[b]) == 0:
+            print(f"Batch {b}: No valid ground truth classes found!")
             false_positives += num_queries
             continue
 
-        unmatched_pred_indices = set(range(num_queries)) - set(row_indices[b])
-        unmatched_gt_indices = set(range(len(gt_classes_b))) - set(col_indices[b])
+        unmatched_pred_indices = set(range(num_queries)) - set(row_indices)
+        unmatched_gt_indices = set(range(len(filtered_gt_classes[b]))) - set(col_indices)
 
         unmatched_pred_penalty = len(unmatched_pred_indices) * delta
         unmatched_gt_penalty = len(unmatched_gt_indices) * delta
 
-        matched_pred_classes = predicted_classes[b, row_indices[b]]
-        matched_gt_classes = gt_classes_b[col_indices[b]]
-        matched_pred_boxes = predicted_boxes[b][row_indices[b]]
-        matched_gt_boxes = gt_boxes[b][gt_classes[b] > 0][col_indices[b]]
+        matched_pred_classes = predicted_classes[b, row_indices]
+        matched_gt_classes = torch.tensor(filtered_gt_classes[b])[col_indices].to(device)
+
+        # print(f"Batch {b}: Matched predicted classes shape: {matched_pred_classes.shape}")
+        # print(f"Batch {b}: Matched ground truth classes shape: {matched_gt_classes.shape}")
+        # print(f"Batch {b}: Matched ground truth classes values: {matched_gt_classes.tolist()}")
 
         # Classification loss
         class_loss = nn.CrossEntropyLoss()(matched_pred_classes, matched_gt_classes).mean()
 
         # GIoU loss
         giou_loss = generalized_box_iou_loss(
-            convert_to_corners(matched_pred_boxes), convert_to_corners(matched_gt_boxes)
+            convert_to_corners(predicted_boxes[b, row_indices]),
+            convert_to_corners(filtered_gt_boxes[b][col_indices]),
         ).mean()
 
         # L1 loss
-        l1_loss = F.l1_loss(matched_pred_boxes, matched_gt_boxes, reduction="mean")
+        l1_loss = F.l1_loss(predicted_boxes[b, row_indices], filtered_gt_boxes[b][col_indices], reduction="mean")
 
         # Combine GIoU loss and L1 loss as box loss
         box_loss = giou_loss + l1_loss
@@ -215,13 +225,13 @@ def calculate_loss(
         correct_predictions = (predicted_labels == matched_gt_classes).sum().item()
         total_class_accuracy += correct_predictions / len(matched_gt_classes)
 
-        correct_boxes = (iou_matrices[b][row_indices[b], col_indices[b]] >= iou_threshold).sum().item()
-        total_box_accuracy += correct_boxes / len(matched_gt_boxes)
+        correct_boxes = (iou_matrices[b][row_indices, col_indices] >= iou_threshold).sum().item()
+        total_box_accuracy += correct_boxes / len(filtered_gt_boxes[b])
 
         # Update F1 score metrics
         true_positives += correct_boxes
-        false_positives += len(row_indices[b]) - correct_boxes
-        false_negatives += len(gt_classes_b) - correct_boxes
+        false_positives += len(row_indices) - correct_boxes
+        false_negatives += len(filtered_gt_classes[b]) - correct_boxes
 
     total_class_loss /= batch_size
     total_box_loss /= batch_size
@@ -242,6 +252,9 @@ def calculate_loss(
     recall = true_positives / (true_positives + false_negatives + 1e-8)
     f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
 
+    # print(f"Loss Summary: Class Loss={total_class_loss}, Box Loss={total_box_loss}, Total Loss={total_loss}")
+    # print(f"F1 Score Metrics: Precision={precision}, Recall={recall}, F1 Score={f1_score}")
+
     return (
         total_loss,
         weighted_class_loss,
@@ -251,7 +264,6 @@ def calculate_loss(
         total_box_accuracy,
         (f1_score, precision, recall),
     )
-
 
 
 def evaluate_model(model, data_loader,  alpha=10, beta=10, delta=.1, iou_threshold=0.5):
@@ -275,7 +287,7 @@ def evaluate_model(model, data_loader,  alpha=10, beta=10, delta=.1, iou_thresho
                     class_accuracy,
                     box_accuracy,
                     (f1_score, precision, recall),
-                ) = calculate_loss(
+                ) = calculate_loss_metrics(
                     predicted_classes=predicted_classes,
                     predicted_boxes=predicted_boxes,
                     gt_classes=batch_ground_truth["classes"],
@@ -359,7 +371,7 @@ def train_model(model, optimizer, train_loader, val_loader, num_epochs, alpha=10
                     class_accuracy,
                     box_accuracy,
                     (f1_score, precision, recall),
-                ) = calculate_loss(
+                ) = calculate_loss_metrics(
                     predicted_classes=predicted_classes,
                     predicted_boxes=predicted_boxes,
                     gt_classes=batch_ground_truth["classes"],
@@ -458,7 +470,7 @@ if __name__ == "__main__":
     # num_layers = 4  
     # num_heads = 4  
     # model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
-    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  # Higher initial learning rate
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  
 
     # Initialize model and optimizer
     model_dim = 256  
