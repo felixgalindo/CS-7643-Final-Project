@@ -275,7 +275,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
           f"Recall = {avg_recall:.4f}")
 
     # Return the total loss as the scalar value for optimization
-    total_loss = avg_class_loss + avg_box_loss + avg_unmatched_loss  # Or you can return any other scalar value you prefer
+    total_loss = avg_class_loss + avg_box_loss + avg_unmatched_loss  
     return total_loss
 
 
@@ -283,7 +283,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
 def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=1):
     model.train()
     for epoch in range(num_epochs):
-        epoch_class_loss, epoch_box_loss, epoch_cardinality_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0, 0.0
+        epoch_class_loss, epoch_box_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0, 0.0
         epoch_class_accuracy, epoch_box_accuracy = 0.0, 0.0
         epoch_f1_score, epoch_precision, epoch_recall = 0.0, 0.0, 0.0
         num_batches = 0
@@ -300,7 +300,6 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                     total_loss,
                     class_loss,
                     box_loss,
-                    #cardinality_loss,
                     unmatched_loss,
                     class_accuracy,
                     box_accuracy,
@@ -312,7 +311,6 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                     gt_boxes=batch_ground_truth["boxes"],
                     alpha=alpha,
                     beta=beta,
-                    #gamma=gamma,
                     delta=delta,
                     iou_threshold=iou_threshold,
                 )
@@ -324,7 +322,6 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                 # Accumulate metrics
                 epoch_class_loss += class_loss
                 epoch_box_loss += box_loss
-                #epoch_cardinality_loss += cardinality_loss
                 epoch_unmatched_loss += unmatched_loss
                 epoch_class_accuracy += class_accuracy
                 epoch_box_accuracy += box_accuracy
@@ -338,7 +335,6 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                     "Trial": f"{trial}",
                     "Class Loss": f"{epoch_class_loss / num_batches:.4f}",
                     "Box Loss": f"{epoch_box_loss / num_batches:.4f}",
-                    #"Cardinality Loss": f"{epoch_cardinality_loss / num_batches:.4f}",
                     "GIoU Loss": f"{epoch_unmatched_loss / num_batches:.4f}",
                     "Class Accuracy": f"{epoch_class_accuracy / num_batches:.4f}",
                     "Box Accuracy": f"{epoch_box_accuracy / num_batches:.4f}",
@@ -351,7 +347,6 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
         # Normalize metrics by the number of batches
         avg_class_loss = epoch_class_loss / num_batches
         avg_box_loss = epoch_box_loss / num_batches
-        #avg_cardinality_loss = epoch_cardinality_loss / num_batches
         avg_unmatched_loss = epoch_unmatched_loss / num_batches
         avg_class_accuracy = epoch_class_accuracy / num_batches
         avg_box_accuracy = epoch_box_accuracy / num_batches
@@ -364,7 +359,6 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
               f"Epoch {epoch + 1}/{num_epochs}: "
               f"Class Loss = {avg_class_loss:.4f}, "
               f"Box Loss = {avg_box_loss:.4f}, "
-              #f"Cardinality Loss = {avg_cardinality_loss:.4f}, "
               f"GIoU Loss = {avg_unmatched_loss:.4f}, "
               f"Class Accuracy = {avg_class_accuracy:.4f}, "
               f"Box Accuracy = {avg_box_accuracy:.4f}, "
@@ -434,14 +428,15 @@ def objective(trial):
     # Validation loss is returned by the evaluate_model function
     validation_loss = evaluate_model(trained_model, val_loader, trial=trial.number)
     
-    # Return validation loss to Optuna (Optuna tries to minimize this)
-    return validation_loss  # Optuna will minimize this value
+    # Return validation loss 
+    return validation_loss  
 
 
 def hypertune():
     print("Hypertuning started")
+    
     # Create an Optuna study
-    study = optuna.create_study(direction='minimize')  # Direction can be 'maximize' or 'minimize'
+    study = optuna.create_study(direction='minimize')  
     study.optimize(objective, n_trials=50, n_jobs=4)  # Try 50 different hyperparameter combinations and run 4 trials in parallel
 
     # Print the best hyperparameters
