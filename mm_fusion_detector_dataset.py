@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 
 
-class PedestrianDetectorDataset(Dataset):
+class MMFusionDetectorDataset(Dataset):
     def __init__(self, pkl_dir, pt_dir):
         """
         Initialize the dataset.

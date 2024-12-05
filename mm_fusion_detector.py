@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
-from pedestrian_detector_dataset import PedestrianDetectorDataset, custom_collate
+from mm_fusion_detector import MMFusionDetectorDataset, custom_collate
 from scipy.optimize import linear_sum_assignment
 import numpy as np
 import torch.nn.functional as F
@@ -19,9 +19,9 @@ def sinusoidal_positional_encoding(seq_len, model_dim):
     pe[:, 1::2] = torch.cos(position * div_term)
     return pe.unsqueeze(0)  # Add batch dimension
 
-class MMFusionPedestrianDetector(nn.Module):
+class MMFusionDetector(nn.Module):
     def __init__(self, model_dim=256, num_heads=8, num_layers=6, num_queries=100, num_classes=2, alpha=10, beta=10, delta=.1):
-        super(MMFusionPedestrianDetector, self).__init__()
+        super(MMFusionDetector, self).__init__()
         self.model_dim = model_dim
         self.num_queries = num_queries
         self.alpha=alpha

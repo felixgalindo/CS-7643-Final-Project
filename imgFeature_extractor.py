@@ -20,7 +20,7 @@ class ImgFeatureExtractor:
             ),
         ])
 
-        # Extract multiple layers for richer features
+        # Extract multiple layers
         self.model = model
         self.feature_layers = {
             "layer1": self.model.layer1,

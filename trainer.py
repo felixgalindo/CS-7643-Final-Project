@@ -2,7 +2,7 @@ import optuna
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from pedestrian_detector import MMFusionPedestrianDetector, PedestrianDetectorDataset, custom_collate
+from pedestrian_detector import MMFusionDetector, PedestrianDetectorDataset, custom_collate
 import os
 import torch.nn as nn
 import torch.optim as optim
@@ -392,7 +392,7 @@ def objective(trial):
     print(f"  alpha = {alpha}, beta = {beta}, delta = {delta}")
 
     # Initialize model
-    model = MMFusionPedestrianDetector(
+    model = MMFusionDetector(
         model_dim=model_dim, 
         num_heads=num_heads, 
         num_layers=num_layers, 
@@ -434,10 +434,10 @@ def objective(trial):
 
 def hypertune():
     print("Hypertuning started")
-    
+
     # Create an Optuna study
     study = optuna.create_study(direction='minimize')  
-    study.optimize(objective, n_trials=50, n_jobs=4)  # Try 50 different hyperparameter combinations and run 4 trials in parallel
+    study.optimize(objective, n_trials=10, n_jobs=5)  
 
     # Print the best hyperparameters
     print(f"Best hyperparameters: {study.best_params}")
@@ -465,7 +465,7 @@ if __name__ == "__main__":
 
     # # # Initialize model and optimizer
     # # model_dim = 256
-    # # model = MMFusionPedestrianDetector(model_dim)
+    # # model = MMFusionDetector(model_dim)
     # # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     # # # Initialize model and optimizer
