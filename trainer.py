@@ -438,8 +438,8 @@ def objective(trial):
     return validation_loss  # Optuna will minimize this value
 
 
-
-if __name__ == "__main__":
+def hypertune():
+    print("Hypertuning started")
     # Create an Optuna study
     study = optuna.create_study(direction='minimize')  # Direction can be 'maximize' or 'minimize'
     study.optimize(objective, n_trials=50, n_jobs=4)  # Try 50 different hyperparameter combinations and run 4 trials in parallel
@@ -448,60 +448,61 @@ if __name__ == "__main__":
     print(f"Best hyperparameters: {study.best_params}")
 
 
-# if __name__ == "__main__":
-#     # Dataset directories
-#     pt_dir = os.path.expanduser("./data/image_features_more_layers")
-#     pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
+if __name__ == "__main__":
+    hypertune()
+    # # Dataset directories
+    # pt_dir = os.path.expanduser("./data/image_features_more_layers")
+    # pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
 
-#     # Initialize dataset
-#     dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
+    # # Initialize dataset
+    # dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
 
-#     # Split the datasets for training, validation, and testing
-#     train_size = int(0.7 * len(dataset))
-#     val_size = int(0.2 * len(dataset))
-#     test_size = len(dataset) - train_size - val_size
-#     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+    # # Split the datasets for training, validation, and testing
+    # train_size = int(0.7 * len(dataset))
+    # val_size = int(0.2 * len(dataset))
+    # test_size = len(dataset) - train_size - val_size
+    # train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
-#     # Create DataLoaders
-#     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
-#     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
-#     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
+    # # Create DataLoaders
+    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
+    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
+    # test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
 
-#     # # Initialize model and optimizer
-#     # model_dim = 256
-#     # model = MMFusionPedestrianDetector(model_dim)
-#     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    # # # Initialize model and optimizer
+    # # model_dim = 256
+    # # model = MMFusionPedestrianDetector(model_dim)
+    # # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
-#     # # Initialize model and optimizer
-#     # model_dim = 128  
-#     # num_layers = 4  
-#     # num_heads = 4  
-#     # model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
-#     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  
+    # # # Initialize model and optimizer
+    # # model_dim = 128  
+    # # num_layers = 4  
+    # # num_heads = 4  
+    # # model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
+    # # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  
 
-#     # Initialize model and optimizer
-#     model_dim = 256  
-#     num_layers = 6
-#     num_heads = 8    
-#     model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
+    # # Initialize model and optimizer
+    # model_dim = 256  
+    # num_layers = 6
+    # num_heads = 8    
+    # model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
 
-#     # Optimizer 
-#     optimizer = torch.optim.Adam(model.parameters(), lr=10e-4)
+    # # Optimizer 
+    # optimizer = torch.optim.Adam(model.parameters(), lr=10e-4)
 
-#     # Learning rate scheduler
-#     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # # Learning rate scheduler
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
-#     # Train the model
-#     print("Starting training...")
-#     trained_model = train_model(
-#         model=model,
-#         optimizer=optimizer,
-#         scheduler=scheduler,
-#         train_loader=train_loader,
-#         val_loader=val_loader,
-#         num_epochs=20
-#     )
+    # # Train the model
+    # print("Starting training...")
+    # trained_model = train_model(
+    #     model=model,
+    #     optimizer=optimizer,
+    #     scheduler=scheduler,
+    #     train_loader=train_loader,
+    #     val_loader=val_loader,
+    #     num_epochs=20
+    # )
 
-#     # Evaluate the model on the test set
-#     print("Evaluating on test set...")
-#     evaluate_model(trained_model, test_loader)
+    # # Evaluate the model on the test set
+    # print("Evaluating on test set...")
+    # evaluate_model(trained_model, test_loader)
