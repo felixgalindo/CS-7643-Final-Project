@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
-from mm_fusion_detector import MMFusionDetectorDataset, custom_collate
+from mm_fusion_detector_dataset import MMFusionDetectorDataset, custom_collate
 from scipy.optimize import linear_sum_assignment
 import numpy as np
 import torch.nn.functional as F

@@ -2,7 +2,7 @@ import optuna
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from pedestrian_detector import MMFusionDetector, PedestrianDetectorDataset, custom_collate
+from mm_fusion_detector import MMFusionDetector, MMFusionDetectorDataset, custom_collate
 import os
 import torch.nn as nn
 import torch.optim as optim
@@ -283,7 +283,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
 def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=1):
     model.train()
     for epoch in range(num_epochs):
-        epoch_class_loss, epoch_box_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0, 0.0
+        epoch_class_loss, epoch_box_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0
         epoch_class_accuracy, epoch_box_accuracy = 0.0, 0.0
         epoch_f1_score, epoch_precision, epoch_recall = 0.0, 0.0, 0.0
         num_batches = 0
@@ -410,7 +410,7 @@ def objective(trial):
     pkl_dir = "./dataset/cam_box_per_image"
 
     # Initialize dataset
-    dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
 
     # Split dataset
     train_size = int(0.7 * len(dataset))
@@ -444,60 +444,60 @@ def hypertune():
 
 
 if __name__ == "__main__":
-    hypertune()
-    # # Dataset directories
-    # pt_dir = os.path.expanduser("./data/image_features_more_layers")
-    # pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
+    #hypertune()
+    # Dataset directories
+    pt_dir = os.path.expanduser("./data/image_features_more_layers")
+    pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
 
-    # # Initialize dataset
-    # dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
+    # Initialize dataset
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
 
-    # # Split the datasets for training, validation, and testing
-    # train_size = int(0.7 * len(dataset))
-    # val_size = int(0.2 * len(dataset))
-    # test_size = len(dataset) - train_size - val_size
-    # train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+    # Split the datasets for training, validation, and testing
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
-    # # Create DataLoaders
-    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
-    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
-    # test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
-
-    # # # Initialize model and optimizer
-    # # model_dim = 256
-    # # model = MMFusionDetector(model_dim)
-    # # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
-    # # # Initialize model and optimizer
-    # # model_dim = 128  
-    # # num_layers = 4  
-    # # num_heads = 4  
-    # # model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
-    # # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  
+    # Create DataLoaders
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
 
     # # Initialize model and optimizer
-    # model_dim = 256  
-    # num_layers = 6
-    # num_heads = 8    
+    # model_dim = 256
+    # model = MMFusionDetector(model_dim)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+    # # Initialize model and optimizer
+    # model_dim = 128  
+    # num_layers = 4  
+    # num_heads = 4  
     # model = MMFusionPedestrianDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  
 
-    # # Optimizer 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=10e-4)
+    # Initialize model and optimizer
+    model_dim = 256  
+    num_layers = 6
+    num_heads = 8    
+    model = MMFusionDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
 
-    # # Learning rate scheduler
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # Optimizer 
+    optimizer = torch.optim.Adam(model.parameters(), lr=10e-4)
 
-    # # Train the model
-    # print("Starting training...")
-    # trained_model = train_model(
-    #     model=model,
-    #     optimizer=optimizer,
-    #     scheduler=scheduler,
-    #     train_loader=train_loader,
-    #     val_loader=val_loader,
-    #     num_epochs=20
-    # )
+    # Learning rate scheduler
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
-    # # Evaluate the model on the test set
-    # print("Evaluating on test set...")
-    # evaluate_model(trained_model, test_loader)
+    # Train the model
+    print("Starting training...")
+    trained_model = train_model(
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        num_epochs=20
+    )
+
+    # Evaluate the model on the test set
+    print("Evaluating on test set...")
+    evaluate_model(trained_model, test_loader)
