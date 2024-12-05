@@ -20,9 +20,9 @@ class MMFusionDetectorDataset(Dataset):
         if not self.valid_samples:
             raise ValueError("No valid samples found. Please check your data directories.")
 
-        print(f"Dataset initialized with {len(self.valid_samples)} valid samples.")
-        print(f"First valid sample: {self.valid_samples[0]}")
-        print(f"Type of first sample: {type(self.valid_samples[0])}")
+        # print(f"Dataset initialized with {len(self.valid_samples)} valid samples.")
+        # print(f"First valid sample: {self.valid_samples[0]}")
+        # print(f"Type of first sample: {type(self.valid_samples[0])}")
 
     def _build_valid_samples(self):
         """
