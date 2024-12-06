@@ -101,7 +101,7 @@ def calculate_loss_metrics(
 
     for b, (row_indices, col_indices) in enumerate(matched_indices):
         if len(filtered_gt_classes[b]) == 0:
-            print(f"Batch {b}: No valid ground truth classes found!")
+            #print(f"Batch {b}: No valid ground truth classes found!")
             false_positives += num_queries
             continue
 
@@ -186,6 +186,7 @@ def calculate_loss_metrics(
         (f1_score, precision, recall),
     )
 
+
 def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_threshold=0.5, trialNumber=0):
     """
     Evaluate the model on the validation dataset.
@@ -201,7 +202,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
     model.eval()
     
     # Initialize variables to store the accumulated metrics
-    total_class_loss, total_box_loss, total_unmatched_loss = 0.0, 0.0, 0.0
+    total_class_loss, total_box_loss, total_iou_loss = 0.0, 0.0, 0.0
     total_class_accuracy, total_box_accuracy = 0.0, 0.0
     total_f1_score, total_precision, total_recall = 0.0, 0.0, 0.0
     num_batches = 0
@@ -215,7 +216,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
                     total_loss,
                     class_loss,
                     box_loss,
-                    unmatched_loss,
+                    iou_loss,
                     class_accuracy,
                     box_accuracy,
                     (f1_score, precision, recall),
@@ -233,7 +234,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
                 # Accumulate metrics
                 total_class_loss += class_loss.item()
                 total_box_loss += box_loss.item()
-                total_unmatched_loss += unmatched_loss.item()
+                total_iou_loss += iou_loss.item()
                 total_class_accuracy += class_accuracy
                 total_box_accuracy += box_accuracy
                 total_f1_score += f1_score
@@ -246,7 +247,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
                     "Trial": f"{trialNumber}",
                     "Avg Class Loss": f"{total_class_loss / num_batches:.4f}",
                     "Avg Box Loss": f"{total_box_loss / num_batches:.4f}",
-                    "Avg GIoU Loss": f"{total_unmatched_loss / num_batches:.4f}",
+                    "Avg IoU Loss": f"{total_iou_loss / num_batches:.4f}",
                     "Avg Class Accuracy": f"{total_class_accuracy / num_batches:.4f}",
                     "Avg Box Accuracy": f"{total_box_accuracy / num_batches:.4f}",
                     "Avg F1 Score": f"{total_f1_score / num_batches:.4f}",
@@ -256,7 +257,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
     # Calculate average metrics
     avg_class_loss = total_class_loss / num_batches
     avg_box_loss = total_box_loss / num_batches
-    avg_unmatched_loss = total_unmatched_loss / num_batches
+    avg_iou_loss = total_iou_loss / num_batches
     avg_class_accuracy = total_class_accuracy / num_batches
     avg_box_accuracy = total_box_accuracy / num_batches
     avg_f1_score = total_f1_score / num_batches
@@ -268,7 +269,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
           f"Validation Results: ,"
           f"Class Loss = {avg_class_loss:.4f}, "
           f"Box Loss = {avg_box_loss:.4f}, "
-          f"GIoU Loss = {avg_unmatched_loss:.4f}, "
+          f"IoU Loss = {avg_iou_loss:.4f}, "
           f"Class Accuracy = {avg_class_accuracy:.4f}, "
           f"Box Accuracy = {avg_box_accuracy:.4f}, "
           f"F1 Score = {avg_f1_score:.4f}, "
@@ -276,14 +277,14 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
           f"Recall = {avg_recall:.4f}")
 
     # Return the total loss as the scalar value for optimization
-    total_loss = avg_class_loss + avg_box_loss + avg_unmatched_loss  
+    total_loss = avg_class_loss + avg_box_loss + avg_iou_loss  
     return total_loss ,avg_box_accuracy
 
 
 def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=None):
     model.train()
     for epoch in range(num_epochs):
-        epoch_class_loss, epoch_box_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0
+        epoch_class_loss, epoch_box_loss, epoch_iou_loss = 0.0, 0.0, 0.0
         epoch_class_accuracy, epoch_box_accuracy = 0.0, 0.0
         epoch_f1_score, epoch_precision, epoch_recall = 0.0, 0.0, 0.0
         num_batches = 0
@@ -304,7 +305,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                     total_loss,
                     class_loss,
                     box_loss,
-                    unmatched_loss,
+                    iou_loss,
                     class_accuracy,
                     box_accuracy,
                     (f1_score, precision, recall),
@@ -326,7 +327,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                 # Accumulate metrics
                 epoch_class_loss += class_loss
                 epoch_box_loss += box_loss
-                epoch_unmatched_loss += unmatched_loss
+                epoch_iou_loss += iou_loss
                 epoch_class_accuracy += class_accuracy
                 epoch_box_accuracy += box_accuracy
                 epoch_f1_score += f1_score
@@ -339,7 +340,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
                     "Trial": f"{trialNumber}",
                     "Class Loss": f"{epoch_class_loss / num_batches:.4f}",
                     "Box Loss": f"{epoch_box_loss / num_batches:.4f}",
-                    "GIoU Loss": f"{epoch_unmatched_loss / num_batches:.4f}",
+                    "IoU Loss": f"{epoch_iou_loss / num_batches:.4f}",
                     "Class Accuracy": f"{epoch_class_accuracy / num_batches:.4f}",
                     "Box Accuracy": f"{epoch_box_accuracy / num_batches:.4f}",
                     "F1 Score": f"{epoch_f1_score / num_batches:.4f}",
@@ -351,7 +352,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
         # Normalize metrics by the number of batches
         avg_class_loss = epoch_class_loss / num_batches
         avg_box_loss = epoch_box_loss / num_batches
-        avg_unmatched_loss = epoch_unmatched_loss / num_batches
+        avg_iou_loss = epoch_iou_loss / num_batches
         avg_class_accuracy = epoch_class_accuracy / num_batches
         avg_box_accuracy = epoch_box_accuracy / num_batches
         avg_f1_score = epoch_f1_score / num_batches
@@ -363,7 +364,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
               f"Epoch {epoch + 1}/{num_epochs}: "
               f"Class Loss = {avg_class_loss:.4f}, "
               f"Box Loss = {avg_box_loss:.4f}, "
-              f"GIoU Loss = {avg_unmatched_loss:.4f}, "
+              f"IoU Loss = {avg_iou_loss:.4f}, "
               f"Class Accuracy = {avg_class_accuracy:.4f}, "
               f"Box Accuracy = {avg_box_accuracy:.4f}, "
               f"F1 Score = {avg_f1_score:.4f}, "
@@ -390,14 +391,14 @@ def objective(trial):
     Define the hyperparameter search space and the training loop for Optuna optimization.
     """
     # Sample hyperparameters
-    model_dim = trial.suggest_categorical('model_dim', [128, 256, 512])  
-    num_heads = trial.suggest_int('num_heads', 2, 4)  
-    num_layers = trial.suggest_int('num_layers', 4, 8) 
+    model_dim = 256#trial.suggest_categorical('model_dim', [128, 256, 512])  
+    num_heads = 8#trial.suggest_int('num_heads', 6, 8)  
+    num_layers = 6#trial.suggest_int('num_layers', 4, 8) 
     lr = trial.suggest_loguniform('lr', 1e-5, 1e-3) 
     weight_decay = trial.suggest_loguniform('weight_decay', 1e-5, 1e-3)  
-    alpha = trial.suggest_loguniform('alpha', 1, 10)  
-    beta = trial.suggest_loguniform('beta', 1, 10)  
-    delta = trial.suggest_loguniform('delta', 1, 10)
+    alpha = trial.suggest_loguniform('alpha', 1, 100)  
+    beta = trial.suggest_loguniform('beta', 1, 100)  
+    delta = trial.suggest_loguniform('delta', 1, 100)
 
     # Print out the trial number and the hyperparameters being tested
     print(f"Running trial {trial.number} with hyperparameters:")
@@ -468,39 +469,43 @@ def hypertune():
     # Create an Optuna study
     study = optuna.create_study(direction='maximize')  # Maximize box accuracy
 
-    # Total number of trials to complete
     total_trials = 10
     completed_trials = 0
+    pruned_trials = 0
 
     def safe_objective(trial):
         try:
             return objective(trial)
+        except optuna.exceptions.TrialPruned:
+            print(f"Trial {trial.number} pruned based on validation performance.")
+            raise
         except Exception as e:
             print(f"Trial {trial.number} failed with error: {e}")
-            raise optuna.exceptions.TrialPruned()
+            raise optuna.exceptions.TrialPruned()  # Treat failed trials as pruned
 
-    while completed_trials < total_trials:
-        # Calculate the number of remaining trials to run
-        remaining_trials = total_trials - completed_trials
+    while completed_trials + pruned_trials < total_trials:
+        remaining_trials = total_trials - completed_trials - pruned_trials
 
         try:
-            # Run the remaining trials with specified parallelism
             study.optimize(
                 safe_objective,
                 n_trials=remaining_trials,
                 n_jobs=min(remaining_trials, 5),  # Limit to 5 parallel jobs
                 callbacks=[print_best_trial_callback]
             )
-            # Update the count of completed trials (those that were not pruned or failed)
+
+            # Update completed and pruned trial counts
             completed_trials = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+            pruned_trials = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
         except Exception as e:
-            print(f"Unhandled exception during trial optimization: {e}. Continuing...")
+            print(f"Unhandled exception during optimization: {e}. Retrying remaining trials.")
 
     # Print the final best hyperparameters and trial
     print("\nHypertuning Completed")
     print(f"Best Trial: {study.best_trial.number}")
     print(f"Best Value (Box Accuracy): {study.best_trial.value:.4f}")
     print(f"Best Parameters: {study.best_trial.params}")
+
 
 # Callback to print the best trial information after each trial
 def print_best_trial_callback(study, trial):

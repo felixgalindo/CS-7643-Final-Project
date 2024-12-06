@@ -46,7 +46,14 @@ class MMFusionDetector(nn.Module):
         self.objectQueries = nn.Parameter(torch.randn(num_queries, model_dim))
 
         # Prediction heads
-        self.boxPredictor = nn.Sequential(nn.Linear(model_dim, 4), nn.Sigmoid())
+        self.boxPredictor = nn.Sequential(
+            nn.Linear(model_dim, model_dim),
+            nn.ReLU(),
+            nn.Linear(model_dim, model_dim),
+            nn.ReLU(),
+            nn.Linear(model_dim, 4),  # Outputs raw (x, y, w, h)
+            nn.Sigmoid()  # Normalizes predictions to [0, 1]
+        )
         self.classPredictor = nn.Linear(model_dim, num_classes)
 
     def forward(self, batchFeatures):
