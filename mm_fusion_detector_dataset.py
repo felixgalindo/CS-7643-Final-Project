@@ -157,7 +157,7 @@ if __name__ == "__main__":
     print("pt_dir:", pt_dir)
 
     # Initialize dataset and dataloader
-    dataset = PedestrianDetectorDataset(pkl_dir, pt_dir)
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
     dataloader = DataLoader(
         dataset,
         batch_size=16,

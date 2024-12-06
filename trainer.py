@@ -186,7 +186,7 @@ def calculate_loss_metrics(
         (f1_score, precision, recall),
     )
 
-def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_threshold=0.5, trial=1):
+def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_threshold=0.5, trialNumber=0):
     """
     Evaluate the model on the validation dataset.
 
@@ -243,6 +243,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
 
                 # Update progress bar with averaged metrics
                 pbar.set_postfix({
+                    "Trial": f"{trialNumber}",
                     "Avg Class Loss": f"{total_class_loss / num_batches:.4f}",
                     "Avg Box Loss": f"{total_box_loss / num_batches:.4f}",
                     "Avg GIoU Loss": f"{total_unmatched_loss / num_batches:.4f}",
@@ -263,7 +264,7 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
     avg_recall = total_recall / num_batches
 
     # Print the final averaged metrics
-    print(f"Validation Results for Trial {trial}: ,"
+    print(f"Validation Results for Trial {trialNumber}: ,"
           f"Validation Results: ,"
           f"Class Loss = {avg_class_loss:.4f}, "
           f"Box Loss = {avg_box_loss:.4f}, "
@@ -276,17 +277,20 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
 
     # Return the total loss as the scalar value for optimization
     total_loss = avg_class_loss + avg_box_loss + avg_unmatched_loss  
-    return total_loss
+    return total_loss ,avg_box_accuracy
 
 
-
-def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=1):
+def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=None):
     model.train()
     for epoch in range(num_epochs):
         epoch_class_loss, epoch_box_loss, epoch_unmatched_loss = 0.0, 0.0, 0.0
         epoch_class_accuracy, epoch_box_accuracy = 0.0, 0.0
         epoch_f1_score, epoch_precision, epoch_recall = 0.0, 0.0, 0.0
         num_batches = 0
+        trialNumber = 0
+
+        if trial is not None:
+            trialNumber=trial.number
 
         with tqdm(total=len(train_loader), desc=f"Epoch {epoch + 1}/{num_epochs}") as pbar:
             for batch_features, batch_ground_truth in train_loader:
@@ -332,7 +336,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
 
                 # Update progress bar
                 pbar.set_postfix({
-                    "Trial": f"{trial}",
+                    "Trial": f"{trialNumber}",
                     "Class Loss": f"{epoch_class_loss / num_batches:.4f}",
                     "Box Loss": f"{epoch_box_loss / num_batches:.4f}",
                     "GIoU Loss": f"{epoch_unmatched_loss / num_batches:.4f}",
@@ -355,7 +359,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
         avg_recall = epoch_recall / num_batches
 
         # Print epoch results
-        print(f" Trial {trial}: "
+        print(f"Trial {trialNumber} "
               f"Epoch {epoch + 1}/{num_epochs}: "
               f"Class Loss = {avg_class_loss:.4f}, "
               f"Box Loss = {avg_box_loss:.4f}, "
@@ -367,96 +371,148 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
               f"Recall = {avg_recall:.4f}")
 
         # Evaluate on validation data
-        evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold)
+        _, val_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trialNumber)
+
+        # Report intermediate results to Optuna
+        if trial is not None:
+            trial.report(val_box_accuracy, epoch)
+
+            # Prune the trial if it's performing poorly
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
 
     return model
+
 
 def objective(trial):
     """
     Define the hyperparameter search space and the training loop for Optuna optimization.
     """
+    # Sample hyperparameters
+    model_dim = trial.suggest_categorical('model_dim', [128, 256, 512])  
+    num_heads = trial.suggest_int('num_heads', 2, 4)  
+    num_layers = trial.suggest_int('num_layers', 4, 8) 
+    lr = trial.suggest_loguniform('lr', 1e-5, 1e-3) 
+    weight_decay = trial.suggest_loguniform('weight_decay', 1e-5, 1e-3)  
+    alpha = trial.suggest_loguniform('alpha', 1, 100)  
+    beta = trial.suggest_loguniform('beta', 1, 100)  
+    delta = trial.suggest_loguniform('delta', 1, 100)
+
+    # Print out the trial number and the hyperparameters being tested
+    print(f"Running trial {trial.number} with hyperparameters:")
+    print(f"  model_dim = {model_dim}, num_heads = {num_heads}, num_layers = {num_layers}")
+    print(f"  lr = {lr}, weight_decay = {weight_decay}")
+    print(f"  alpha = {alpha}, beta = {beta}, delta = {delta}")
+
+    # Initialize model
+    model = MMFusionDetector(
+        model_dim=model_dim, 
+        num_heads=num_heads, 
+        num_layers=num_layers, 
+        alpha=alpha, 
+        beta=beta, 
+        delta=delta
+    )
+
+    # Optimizer and scheduler
+    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
+
+    # Dataset directories
+    pt_dir = "./data/image_features_more_layers"
+    pkl_dir = "./dataset/cam_box_per_image"
+
+    # Initialize dataset
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
+
+    # Split dataset
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+
+    # Data loaders
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
+
+    # Train the model using the train_model function
     try:
-        # Sample hyperparameters
-        model_dim = trial.suggest_categorical('model_dim', [128, 256, 512])  
-        num_heads = trial.suggest_int('num_heads', 2, 4)  
-        num_layers = trial.suggest_int('num_layers', 4, 8) 
-        lr = trial.suggest_loguniform('lr', 1e-5, 1e-3) 
-        weight_decay = trial.suggest_loguniform('weight_decay', 1e-5, 1e-3)  
-        alpha = trial.suggest_loguniform('alpha', 0.1, 100)  
-        beta = trial.suggest_loguniform('beta', 0.1, 100)  
-        delta = trial.suggest_loguniform('delta', 0.1, 100)
-
-        # Print trial parameters
-        print(f"Running trial {trial.number} with hyperparameters:")
-        print(f"  model_dim = {model_dim}, num_heads = {num_heads}, num_layers = {num_layers}")
-        print(f"  lr = {lr}, weight_decay = {weight_decay}")
-        print(f"  alpha = {alpha}, beta = {beta}, delta = {delta}")
-
-        # Initialize model
-        model = MMFusionDetector(
-            model_dim=model_dim, 
-            num_heads=num_heads, 
-            num_layers=num_layers, 
-            alpha=alpha, 
-            beta=beta, 
-            delta=delta
+        train_model(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            num_epochs=10,
+            alpha=alpha,
+            beta=beta,
+            delta=delta,
+            iou_threshold=0.5,
+            trial=trial  # Pass the trial object for pruning
         )
+    except optuna.exceptions.TrialPruned:
+        print(f"Trial {trial.number} pruned based on validation box accuracy.")
+        raise
 
-        # Optimizer and scheduler
-        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-        scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
+    # Evaluate the final model on the validation set
+    iou_threshold = 0.5
+    _, avg_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trial.number)
 
-        # Dataset directories
-        pt_dir = "./data/image_features_more_layers"
-        pkl_dir = "./dataset/cam_box_per_image"
-
-        # Initialize dataset
-        dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
-
-        # Split dataset
-        train_size = int(0.7 * len(dataset))
-        val_size = int(0.2 * len(dataset))
-        test_size = len(dataset) - train_size - val_size
-        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
-
-        # Data loaders
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
-        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
-
-        # Train the model
-        trained_model = train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs=10, trial=trial.number)
-
-        # Validation loss
-        validation_loss = evaluate_model(trained_model, val_loader, trial=trial.number)
-        return validation_loss  # Return validation loss for optimization
-
-    except Exception as e:
-        print(f"Trial {trial.number} failed due to error: {e}")
-        raise  # Let Optuna handle restarting the trial
+    return avg_box_accuracy
 
 
 def hypertune():
     print("Hypertuning started")
 
     # Create an Optuna study
-    study = optuna.create_study(direction='minimize')  
+    study = optuna.create_study(direction='maximize')  # Maximize box accuracy
 
-    # Define a callback to print the best trial after each trial ends
-    def print_best_callback(study, trial):
-        print(f"Latest Best Trial: {study.best_trial.number}")
-        print(f"Best Value: {study.best_value:.4f}")
-        print(f"Best Parameters: {study.best_params}")
+    # Total number of trials to complete
+    total_trials = 10
+    completed_trials = 0
 
-    # Optimize with callback
-    study.optimize(objective, n_trials=10, n_jobs=5, callbacks=[print_best_callback])
+    def safe_objective(trial):
+        try:
+            return objective(trial)
+        except Exception as e:
+            print(f"Trial {trial.number} failed with error: {e}")
+            raise optuna.exceptions.TrialPruned()
 
-    # Print final best parameters
-    print(f"Final Best Hyperparameters: {study.best_params}")
+    while completed_trials < total_trials:
+        # Calculate the number of remaining trials to run
+        remaining_trials = total_trials - completed_trials
+
+        try:
+            # Run the remaining trials with specified parallelism
+            study.optimize(
+                safe_objective,
+                n_trials=remaining_trials,
+                n_jobs=min(remaining_trials, 5),  # Limit to 5 parallel jobs
+                callbacks=[print_best_trial_callback]
+            )
+            # Update the count of completed trials (those that were not pruned or failed)
+            completed_trials = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+        except Exception as e:
+            print(f"Unhandled exception during trial optimization: {e}. Continuing...")
+
+    # Print the final best hyperparameters and trial
+    print("\nHypertuning Completed")
+    print(f"Best Trial: {study.best_trial.number}")
+    print(f"Best Value (Box Accuracy): {study.best_trial.value:.4f}")
+    print(f"Best Parameters: {study.best_trial.params}")
+
+# Callback to print the best trial information after each trial
+def print_best_trial_callback(study, trial):
+    if study.best_trial.number == trial.number:
+        print("\n[Best Trial Updated]")
+        print(f"Trial {trial.number}:")
+        print(f"  Value (Box Accuracy): {trial.value:.4f}")
+        print(f"  Parameters: {trial.params}")
+
 
 
 if __name__ == "__main__":
     hypertune()
-
     # # Dataset directories
     # pt_dir = os.path.expanduser("./data/image_features_more_layers")
     # pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
