@@ -36,17 +36,16 @@ def extract_box_per_image(input_fn):
     cam_box_df = read('camera_box', context_name)
 
     df = v2.merge(cam_box_df, cam_image_df, left_group=True)
-    frame_counter = 0
 
     output_path = os.path.join(save_path, context_name)
     os.makedirs(output_path, exist_ok=True)
 
     for i, (_, r) in enumerate(df.iterrows()):
         # Create component dataclasses for the raw data
-        cam_image = v2.CameraImageComponent.from_dict(r)
+        cam_box = v2.CameraBoxComponent.from_dict(r)
         # Only output box data for camera 1
-        if cam_image.key.camera_name == 1:
-            cam_box = v2.CameraBoxComponent.from_dict(r)
+        if cam_box.key.camera_name == 1:
+            cam_image = v2.CameraImageComponent.from_dict(r)
             box_coordinates = []
 
             output_fn = f"{context_name}_camera_image_camera_{cam_image.key.camera_name}_frame-{frame_counter}_timestamp-{cam_image.key.frame_timestamp_micros}"
@@ -66,7 +65,7 @@ def extract_box_per_image(input_fn):
 
             with open(pkl_fn, 'wb') as f:
                 pickle.dump(output, f)
-            frame_counter = frame_counter + 1
+
 
 for fn in tqdm(file_list):
-    extract_box_per_image(fn)
+    frame_counter = extract_box_per_image(fn)
