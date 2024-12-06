@@ -162,8 +162,10 @@ if __name__ == "__main__":
         dataset,
         batch_size=16,
         shuffle=True,
-        num_workers=4,
+        num_workers=8,
         collate_fn=custom_collate,
+        prefetch_factor=4,     
+        pin_memory=True        
     )
 
     # Test print

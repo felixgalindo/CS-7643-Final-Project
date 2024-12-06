@@ -371,7 +371,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
               f"Recall = {avg_recall:.4f}")
 
         # Evaluate on validation data
-        _, val_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trialNumber)
+        _, val_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold, trialNumber)
 
         # Report intermediate results to Optuna
         if trial is not None:
@@ -384,6 +384,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
     return model
 
 
+
 def objective(trial):
     """
     Define the hyperparameter search space and the training loop for Optuna optimization.
@@ -394,9 +395,9 @@ def objective(trial):
     num_layers = trial.suggest_int('num_layers', 4, 8) 
     lr = trial.suggest_loguniform('lr', 1e-5, 1e-3) 
     weight_decay = trial.suggest_loguniform('weight_decay', 1e-5, 1e-3)  
-    alpha = trial.suggest_loguniform('alpha', 1, 100)  
-    beta = trial.suggest_loguniform('beta', 1, 100)  
-    delta = trial.suggest_loguniform('delta', 1, 100)
+    alpha = trial.suggest_loguniform('alpha', 1, 10)  
+    beta = trial.suggest_loguniform('beta', 1, 10)  
+    delta = trial.suggest_loguniform('delta', 1, 10)
 
     # Print out the trial number and the hyperparameters being tested
     print(f"Running trial {trial.number} with hyperparameters:")
@@ -426,14 +427,14 @@ def objective(trial):
     dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
 
     # Split dataset
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.2 * len(dataset))
+    train_size = int(0.1 * len(dataset))
+    val_size = int(0.1 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
     # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate,prefetch_factor=4)
 
     # Train the model using the train_model function
     try:

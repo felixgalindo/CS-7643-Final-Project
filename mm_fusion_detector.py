@@ -72,7 +72,7 @@ class MMFusionDetector(nn.Module):
         encoderOut = encoderOut.permute(1, 0, 2)  # [seq_len, batch_size, model_dim]
 
         # Decoder
-        objectQueries = self.objectQueries.unsqueeze(0).expand(batchSize, -1, -1)  # [batch_size, num_queries, model_dim]
+        objectQueries = self.objectQueries.unsqueeze(0).expand(batchSize, -1, -1).to(projectedFeatures.device)  # [batch_size, num_queries, model_dim]
         decoderOut = self.decoder(objectQueries.permute(1, 0, 2), encoderOut)  # [num_queries, batch_size, model_dim]
         decoderOut = decoderOut.permute(1, 0, 2)  # [batch_size, num_queries, model_dim]
 
