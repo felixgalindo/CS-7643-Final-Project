@@ -385,15 +385,31 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
     return model
 
 
+# Predefine all valid combinations
+valid_combinations = [
+    (dim, heads, layers)
+    for dim in [128, 256, 512]
+    for heads in [6,8] 
+    for layers in (4, 6 , 8)  
+    if dim % heads == 0
+]
+
 
 def objective(trial):
     """
     Define the hyperparameter search space and the training loop for Optuna optimization.
     """
-    # Sample hyperparameters
-    model_dim = 256#trial.suggest_categorical('model_dim', [128, 256, 512])  
-    num_heads = 8#trial.suggest_int('num_heads', 6, 8)  
-    num_layers = 6#trial.suggest_int('num_layers', 4, 8) 
+    # num_layers = trial.suggest_int('num_layers', 4, 8) 
+    # model_dim = trial.suggest_categorical('model_dim', [128, 256, 512])  
+    # num_heads = trial.suggest_int('num_heads', 6, 8)  
+
+    model_dim, num_heads, num_layers = trial.suggest_categorical('combination', valid_combinations)
+
+    # Ensure valid combination
+    if model_dim % num_heads != 0:
+        raise optuna.exceptions.TrialPruned()  # Prune invalid combinations
+
+
     lr = trial.suggest_loguniform('lr', 1e-5, 1e-3) 
     weight_decay = trial.suggest_loguniform('weight_decay', 1e-5, 1e-3)  
     alpha = trial.suggest_loguniform('alpha', 1, 100)  
@@ -469,7 +485,7 @@ def hypertune():
     # Create an Optuna study
     study = optuna.create_study(direction='maximize')  # Maximize box accuracy
 
-    total_trials = 10
+    total_trials = 20
     completed_trials = 0
     pruned_trials = 0
 
