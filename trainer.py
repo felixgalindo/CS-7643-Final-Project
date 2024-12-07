@@ -410,6 +410,7 @@ def objective(trial):
     # num_heads = trial.suggest_int('num_heads', 6, 8)  
 
     model_dim, num_heads, num_layers = trial.suggest_categorical('combination', valid_combinations)
+    num_epochs = 1
 
     # Ensure valid combination
     if model_dim % num_heads != 0:
@@ -450,7 +451,7 @@ def objective(trial):
             scheduler=scheduler,
             train_loader=train_loader,
             val_loader=val_loader,
-            num_epochs=10,
+            num_epochs=num_epochs,
             alpha=alpha,
             beta=beta,
             delta=delta,
@@ -465,11 +466,19 @@ def objective(trial):
     iou_threshold = 0.5
     _, avg_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trial.number)
 
-    # Save the best model
-    if trial.study.best_trial == trial:
-        params_str = f"dim{model_dim}_heads{num_heads}_layers{num_layers}_lr{lr:.1e}_wd{weight_decay:.1e}_alpha{alpha:.1e}_beta{beta:.1e}_delta{delta:.1e}_boxacc{avg_box_accuracy:.4f}"
-        torch.save(model.state_dict(), f"best_model_trial_{trial.number}_{params_str}.pth")
-        print(f"Best model saved for trial {trial.number} with params: {params_str}")
+    # Attach model and parameters to trial for the callback
+    trial.set_user_attr("model", model.state_dict())
+    trial.set_user_attr("params", {
+        "model_dim": model_dim,
+        "num_heads": num_heads,
+        "num_layers": num_layers,
+        "lr": lr,
+        "weight_decay": weight_decay,
+        "alpha": alpha,
+        "beta": beta,
+        "delta": delta,
+        "num_epochs": num_epochs
+    })
 
     return avg_box_accuracy
 
@@ -500,7 +509,7 @@ def hypertune():
                 safe_objective,
                 n_trials=remaining_trials,
                 n_jobs=min(remaining_trials, maxParralelTrials),  # Limit to 5 parallel jobs
-                callbacks=[print_best_trial_callback]
+                callbacks=[save_best_model_callback]
             )
 
             # Update completed and pruned trial counts
@@ -516,20 +525,37 @@ def hypertune():
     print(f"Best Parameters: {study.best_trial.params}")
 
 
-# Callback to print the best trial information after each trial
-def print_best_trial_callback(study, trial):
+# Callback to print save the best trial information after each trial
+def save_best_model_callback(study, trial):
     if study.best_trial.number == trial.number:
         print("\n[Best Trial Updated]")
         print(f"Trial {trial.number}:")
         print(f"  Value (Box Accuracy): {trial.value:.4f}")
         print(f"  Parameters: {trial.params}")
 
+        # Retrieve the model, parameters, and num_epochs from the best trial
+        model_state_dict = trial.user_attrs.get("model")
+        params = trial.user_attrs.get("params")
+
+        if model_state_dict and params:
+            num_epochs = params.get("num_epochs", "unknown")
+            params_str = (
+                f"dim{params['model_dim']}_heads{params['num_heads']}_"
+                f"layers{params['num_layers']}_epochs{num_epochs}_"
+                f"lr{params['lr']:.1e}_wd{params['weight_decay']:.1e}_"
+                f"alpha{params['alpha']:.1e}_beta{params['beta']:.1e}_"
+                f"delta{params['delta']:.1e}_boxacc{trial.value:.4f}"
+            )
+            file_name = f"best_model_trial_{trial.number}_{params_str}.pth"
+            torch.save(model_state_dict, "./data/models/" + file_name)
+            print(f"Best model saved to {file_name}")
 
 
 if __name__ == "__main__":
     # Dataset directories
     pt_dir = "./data/image_features_more_layers"
     pkl_dir = "./dataset/cam_box_per_image"
+    os.makedirs("./data/models/", exist_ok=True)
 
     # Initialize dataset
     dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
@@ -541,8 +567,8 @@ if __name__ == "__main__":
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
     # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
 
     #Run HyperTuner
     total_trials = 10
