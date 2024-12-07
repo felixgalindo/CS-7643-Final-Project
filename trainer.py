@@ -15,6 +15,12 @@ from torchvision.ops import box_iou
 from torchvision.ops import generalized_box_iou_loss
 
 
+#These get overwritten in main
+train_loader = None
+val_loader = None
+total_trials = 1
+maxParralelTrials = 5
+
 def convert_to_corners(boxes):
     """
     Converts bounding boxes from [x, y, w, h] to [x1, y1, x2, y2].
@@ -436,23 +442,6 @@ def objective(trial):
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
 
-    # Dataset directories
-    pt_dir = "./data/image_features_more_layers"
-    pkl_dir = "./dataset/cam_box_per_image"
-
-    # Initialize dataset
-    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
-
-    # Split dataset
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.1 * len(dataset))
-    test_size = len(dataset) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
-
-    # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
-
     # Train the model using the train_model function
     try:
         train_model(
@@ -490,8 +479,6 @@ def hypertune():
 
     # Create an Optuna study
     study = optuna.create_study(direction='maximize')  # Maximize box accuracy
-
-    total_trials = 10
     completed_trials = 0
     pruned_trials = 0
 
@@ -512,7 +499,7 @@ def hypertune():
             study.optimize(
                 safe_objective,
                 n_trials=remaining_trials,
-                n_jobs=min(remaining_trials, 5),  # Limit to 5 parallel jobs
+                n_jobs=min(remaining_trials, maxParralelTrials),  # Limit to 5 parallel jobs
                 callbacks=[print_best_trial_callback]
             )
 
@@ -540,7 +527,28 @@ def print_best_trial_callback(study, trial):
 
 
 if __name__ == "__main__":
+    # Dataset directories
+    pt_dir = "./data/image_features_more_layers"
+    pkl_dir = "./dataset/cam_box_per_image"
+
+    # Initialize dataset
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
+
+    # Split dataset
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.1 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+
+    # Data loaders
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+
+    #Run HyperTuner
+    total_trials = 10
+    maxParralelTrials = 5
     hypertune()
+
     # # Dataset directories
     # pt_dir = os.path.expanduser("./data/image_features_more_layers")
     # pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
