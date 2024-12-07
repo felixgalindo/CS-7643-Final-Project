@@ -444,14 +444,14 @@ def objective(trial):
     dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
 
     # Split dataset
-    train_size = int(0.1 * len(dataset))
+    train_size = int(0.7 * len(dataset))
     val_size = int(0.1 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
     # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=16, collate_fn=custom_collate,prefetch_factor=4)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=8, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
 
     # Train the model using the train_model function
     try:
@@ -476,6 +476,12 @@ def objective(trial):
     iou_threshold = 0.5
     _, avg_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trial.number)
 
+    # Save the best model
+    if trial.study.best_trial == trial:
+        params_str = f"dim{model_dim}_heads{num_heads}_layers{num_layers}_lr{lr:.1e}_wd{weight_decay:.1e}_alpha{alpha:.1e}_beta{beta:.1e}_delta{delta:.1e}_boxacc{avg_box_accuracy:.4f}"
+        torch.save(model.state_dict(), f"best_model_trial_{trial.number}_{params_str}.pth")
+        print(f"Best model saved for trial {trial.number} with params: {params_str}")
+
     return avg_box_accuracy
 
 
@@ -485,7 +491,7 @@ def hypertune():
     # Create an Optuna study
     study = optuna.create_study(direction='maximize')  # Maximize box accuracy
 
-    total_trials = 20
+    total_trials = 10
     completed_trials = 0
     pruned_trials = 0
 
