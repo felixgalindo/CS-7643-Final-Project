@@ -16,22 +16,47 @@ from tqdm import tqdm
 # Load data
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Use VAE for autoencoder
+# Class to include the lidar data
+# Preprocess the data
 class ProjectedLidarDataset(Dataset):
-    def __init__(self, input_lidar, downsample_factor):
+    def __init__(self, input_lidar, downsample_factor, transform_method, threshold):
         data = torch.from_numpy(input_lidar).float()
+
         self.num_samples = torch.tensor(data.shape[0], dtype=torch.int64)
         self.height = torch.tensor(data.shape[1], dtype=torch.int64)
         self.width = torch.tensor(data.shape[2], dtype=torch.int64)
         self.shape = torch.tensor(data.shape, dtype=torch.int64)
         self.downsample_factor = downsample_factor
 
-        # normalize the data
-        self.data_mu = torch.mean(data)
-        self.data_std = torch.std(data)
-        self.data = (data - self.data_mu)/(self.data_std + 1e-6)
-        self.data = (self.data + 3)/6
-        self.data = torch.clamp(self.data, 0, 1)
+        non_zero_mask = data != 0
+        large_value_mask = data < threshold
+        self.non_zero_mask = torch.logical_and(non_zero_mask, large_value_mask)
+        self.zeros_mask = ~self.non_zero_mask
+
+        if transform_method == "normalization_without_mask":
+            self.data_mu = torch.mean(data)
+            self.data_std = torch.std(data)
+            self.data = (data - self.data_mu) / (self.data_std + 1e-8)
+            self.data = (self.data + 3) / 6
+            self.data = torch.clamp(self.data, 0, 1)
+            self.data[self.zeros_mask] = 0
+        elif transform_method == "normalization_with_mask":
+
+            self.data_mu = torch.mean(data[self.non_zero_mask])
+            self.data_std = torch.std(data[self.non_zero_mask])
+            self.data = (data - self.data_mu) / (self.data_std + 1e-8)
+            self.data = (self.data + 3) / 6
+            self.data = torch.clamp(self.data, 0, 1)
+            self.data[self.zeros_mask] = 0
+        elif transform_method == "log_normalization_with_mask":
+            data = torch.log(data + 1e-6)
+            self.data_mu = torch.mean(data[self.non_zero_mask])
+            self.data_std = torch.std(data[self.non_zero_mask])
+            self.data = (data - self.data_mu) / (self.data_std + 1e-8)
+            self.data = (self.data + 3) / 6
+            self.data = torch.clamp(self.data, 0, 1)
+            self.data[self.zeros_mask] = 0
+
 
     def __len__(self):
         return self.num_samples
@@ -40,30 +65,41 @@ class ProjectedLidarDataset(Dataset):
         return self.data[index]
 
 class VAE(nn.Module):
-    def __init__(self, input_dim, latent_dim, hidden_dim=1024):
+    def __init__(self, input_dim, latent_dim, hidden_dim=(1024, 512)):
         super().__init__()
 
         # Encoder
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim[0]),
+            nn.BatchNorm1d(hidden_dim[0]),
             nn.LeakyReLU(),
             nn.Dropout(0.25),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim[0], hidden_dim[1]),
+            nn.BatchNorm1d(hidden_dim[1]),
+            nn.LeakyReLU(),
+            nn.Dropout(0.25),
+            nn.Linear(hidden_dim[1], hidden_dim[1]),
+            nn.BatchNorm1d(hidden_dim[1]),
             nn.LeakyReLU(),
             nn.Dropout(0.25),
         )
 
         # Latent space
-        self.fc_mu = nn.Linear(hidden_dim, latent_dim)
-        self.fc_var = nn.Linear(hidden_dim, latent_dim)
+        self.fc_mu = nn.Linear(hidden_dim[1], latent_dim)
+        self.fc_var = nn.Linear(hidden_dim[1], latent_dim)
 
         # Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
+            nn.Linear(latent_dim, hidden_dim[1]),
+            nn.BatchNorm1d(hidden_dim[1]),
             nn.LeakyReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim[1], hidden_dim[1]),
+            nn.BatchNorm1d(hidden_dim[1]),
             nn.LeakyReLU(),
-            nn.Linear(hidden_dim, input_dim),
+            nn.Linear(hidden_dim[1], hidden_dim[0]),
+            nn.BatchNorm1d(hidden_dim[0]),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim[0], input_dim),
             nn.Sigmoid(),
         )
 
@@ -87,11 +123,76 @@ class VAE(nn.Module):
         z = self.reparameterize(mu, log_var)
         return self.decode(z), mu, log_var
 
+class CAE(nn.Module):
+    def __init__(self, input_channel_num = 1):
+        super().__init__()
 
-def load_lidar_data(num_images=1000, input_h=1280, input_w=1920, downsample=4) -> ProjectedLidarDataset:
+        # Encoder
+        self.encoder = nn.Sequential(
+
+            nn.Conv2d(input_channel_num, out_channels=32, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.Dropout(0.25),
+            nn.LeakyReLU(),
+
+            nn.Conv2d(32, out_channels=64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.Dropout(0.25),
+            nn.LeakyReLU(),
+
+            nn.Conv2d(64, out_channels=128, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.Dropout(0.25),
+            nn.LeakyReLU(),
+
+            nn.Conv2d(128, out_channels=256, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.Dropout(0.25),
+            nn.LeakyReLU(),
+
+            nn.Conv2d(256, out_channels=512, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.Dropout(0.25),
+            nn.LeakyReLU(),
+
+        )
+
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(512, out_channels=256, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(),
+
+            nn.ConvTranspose2d(256, out_channels=128, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(),
+
+            nn.ConvTranspose2d(128, out_channels=64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
+
+            nn.ConvTranspose2d(64, out_channels=32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(),
+
+
+            nn.ConvTranspose2d(32, out_channels=input_channel_num, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.Sigmoid(),
+
+        )
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded
+
+    def encode(self, x):
+        return self.encoder(x)
+
+def load_lidar_data(num_images=1000, input_h=1280, input_w=1920, downsample=4, threshold=10,
+                    transform_method="normalization_without_mask") -> ProjectedLidarDataset:
     data_path = '/home/meowater/Documents/ssd_drive/lidar_projected/'
     data_list = glob.glob(os.path.join(data_path, '*/*.pkl'), recursive=True)
-
+    print(len(data_list))
     selected_list = random.sample(data_list, num_images)
 
     start_time = time.time()
@@ -113,7 +214,7 @@ def load_lidar_data(num_images=1000, input_h=1280, input_w=1920, downsample=4) -
 
     elapsed_time = end_time - start_time
     print("Elapsed time to load the lidar data: ", elapsed_time)
-    output_data = ProjectedLidarDataset(output_data, downsample)
+    output_data = ProjectedLidarDataset(output_data, downsample, threshold=threshold, transform_method=transform_method)
     return output_data
 
 
@@ -139,9 +240,9 @@ def create_dataloader(input_lidar: ProjectedLidarDataset, batch_size=8, num_work
 
 def loss_function(recon_x, x, mu, log_var, beta=0.1):
 
-    BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')
-    KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-    return BCE + beta * KLD
+    bce = F.binary_cross_entropy(recon_x, x, reduction='sum')
+    kld = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+    return bce + beta * kld
 
 
 
@@ -162,7 +263,6 @@ def vae_train(training_data, input_dim, epochs=40, lr=0.00001,
 
         for curr_batch in tqdm(training_data, desc=f"Epoch {epoch+1}/{epochs}"):
             x = curr_batch.view(-1, input_dim).to(device)
-
             # Forward
             optimizer.zero_grad()
             recon_batch, mu, log_var = model(x)
@@ -191,7 +291,50 @@ def vae_train(training_data, input_dim, epochs=40, lr=0.00001,
 
     return model, losses
 
-def visualize_lidar_data(train_model, testing_data, downsample, recon_height, recon_width, num_images2show=6):
+def cae_train(training_data, epochs=40, lr=0.00001):
+
+    model = CAE().to(device)
+
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    schedular = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
+
+    losses = []
+    best_loss = float('inf')
+    best_state = None
+    for epoch in range(epochs):
+        model.train()
+        epoch_loss = 0
+
+        for batch in tqdm(training_data, desc=f"Epoch {epoch+1}/{epochs}"):
+
+            batch = batch.to(device)
+            batch = batch.unsqueeze(1)
+            optimizer.zero_grad()
+            outputs = model(batch)
+            loss = criterion(outputs, batch)
+
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        avg_loss = epoch_loss / training_data.__len__()
+        losses.append(avg_loss)
+
+        schedular.step(avg_loss)
+
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            best_state = model.state_dict()
+
+        if (epoch + 1) % 5 == 0:
+            print(f"For epoch {epoch + 1}/{epochs}, avg_loss = {avg_loss}.")
+
+    model.load_state_dict(best_state)
+    return model, losses
+
+def visualize_vae_result(train_model, testing_data, downsample, recon_height, recon_width, num_images2show=6):
 
     train_model.eval()
     with torch.no_grad():
@@ -205,19 +348,62 @@ def visualize_lidar_data(train_model, testing_data, downsample, recon_height, re
         fig, axes = plt.subplots(2, num_images2show, figsize=(3*num_images2show, 6))
 
         for curr_img in range(num_images2show):
-            axes[0, curr_img].imshow(x[curr_img].cpu(), cmap='viridis')
+            axes[0, curr_img].imshow(x[curr_img].cpu(), cmap='viridis', vmin=0, vmax=1)
             axes[0, curr_img].axis('off')
 
             if curr_img == 3:
                 axes[0, curr_img].set_title("Original")
 
-            axes[1, curr_img].imshow(recon[curr_img].cpu(), cmap='viridis')
+            axes[1, curr_img].imshow(recon[curr_img].cpu(), cmap='viridis', vmin=0, vmax=1)
             axes[1, curr_img].axis('off')
             if curr_img == 3:
                 axes[0, curr_img].set_title("Reconstructed")
 
         plt.tight_layout()
         plt.show()
+
+def visualize_cae_result(cae_model, testing_data, downsample, recon_height, recon_width, num_images2show=6):
+
+    cae_model.eval()
+    with torch.no_grad():
+
+        x = torch.FloatTensor(testing_data[0:num_images2show]).to(device)
+        reshaped_x = x.unsqueeze(1)
+        recon= cae_model(reshaped_x)
+        print(f"Reconstructed shape is {recon.shape}")
+        recon = recon.squeeze(1)
+        recon = recon.view(num_images2show, recon_height, recon_width)
+        print(f"Reconstructed shape after squeeze is {recon.shape}")
+        fig, axes = plt.subplots(2, num_images2show, figsize=(3*num_images2show, 6))
+
+        for curr_img in range(num_images2show):
+            axes[0, curr_img].imshow(x[curr_img].cpu(), cmap='viridis', vmin=0, vmax=1)
+            axes[0, curr_img].axis('off')
+
+            if curr_img == 3:
+                axes[0, curr_img].set_title("Original")
+
+            axes[1, curr_img].imshow(recon[curr_img].cpu(), cmap='viridis', vmin=0, vmax=1)
+            axes[1, curr_img].axis('off')
+            if curr_img == 3:
+                axes[0, curr_img].set_title("Reconstructed")
+
+        plt.tight_layout()
+        plt.show()
+
+def visualize_lidar_data_no_model(input_lidar, num_images2show=6, vmin=0, vmax=1):
+    x = torch.FloatTensor(input_lidar[0:num_images2show]).to(device)
+    fig, axes = plt.subplots(1, num_images2show, figsize=(3 * num_images2show, 3))
+
+    for curr_img in range(num_images2show):
+        axes[curr_img].imshow(x[curr_img].cpu(), cmap='viridis', vmin=vmin, vmax=vmax)
+        axes[curr_img].axis('off')
+
+        if curr_img == 3:
+            axes[curr_img].set_title("Original")
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     lidar_data = load_lidar_data(num_images=10)
