@@ -63,11 +63,13 @@ def load_model_from_file(model_path, device):
     model.eval()
     return model, params
 
-
-def visualize_predictions(model, dataloader, output_dir="visualizations", num_images=5, image_size=(1920, 1280)):
+def visualize_predictions(
+    model, dataloader, output_dir="visualizations", num_images=5, image_size=(1920, 1280)
+):
     """
-    Visualize predictions by overlaying ground truth and matched predicted boxes on images.
-    Includes IoU, L1 values, and class annotations
+    Visualize predictions by overlaying predicted and ground truth boxes on images.
+    Includes IoU and L1 values for matched predictions.
+    Processes only images with 1-3 ground truth vehicle boxes.
 
     Args:
         model: Trained model.
@@ -103,18 +105,13 @@ def visualize_predictions(model, dataloader, output_dir="visualizations", num_im
             ground_truth["classes"] = torch.tensor(vehicle_classes)
             ground_truth["boxes"] = torch.tensor(vehicle_boxes)
 
-            # Process only images with 1 to 3 GT boxes
+            # Skip if the number of GT boxes is not in the range [1, 3]
             num_gt_boxes = len(vehicle_boxes)
             if num_gt_boxes < 1 or num_gt_boxes > 3:
                 continue
 
             processed_images += 1
-
             print(f"\nProcessing Image {processed_images}/{num_images} (Image Index: {i})")
-            print("Ground Truth Keys:", ground_truth.keys())
-            print("Number of GT Boxes:", num_gt_boxes)
-            print("Filtered GT Boxes:", ground_truth["boxes"])
-            print("Filtered GT Classes:", ground_truth["classes"])
 
             try:
                 # Load the image
@@ -127,87 +124,79 @@ def visualize_predictions(model, dataloader, output_dir="visualizations", num_im
                         .replace("camera_image_camera_", "camera_image_camera-")
                         .replace(".pt", ".jpg")
                 )
-                print("Image Path:", image_path)
-
                 img = cv2.imread(image_path)
                 if img is None:
                     print(f"Warning: Could not read image at {image_path}")
                     continue
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-                # Draw Ground Truth Boxes
-                for box, cls in zip(ground_truth["boxes"].cpu().numpy(), ground_truth["classes"].cpu().numpy()):
-                    x1, y1, x2, y2 = box
-                    print(f"GT Box: ({x1}, {y1}, {x2}, {y2}), Class: {cls}")
-                    cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                    cv2.putText(
-                        img,
-                        f"GT: C{cls}",
-                        (int(x1), int(y1) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.0,
-                        (0, 255, 0),
-                        2,
-                    )
-
                 # Predictions
-                print("Running Model Prediction...")
                 predicted_classes, predicted_boxes = model(features)
-                print("Raw Predicted Classes:", predicted_classes)
-                print("Raw Predicted Boxes:", predicted_boxes)
 
                 # Scale predictions to image size
                 predicted_boxes = predicted_boxes * torch.tensor(
                     [image_size[0], image_size[1], image_size[0], image_size[1]]
                 )
 
-                print("Scaled Predicted Boxes:", predicted_boxes)
-
+                # Convert predicted and ground truth boxes to corner format
                 predicted_boxes_corners = convert_to_corners(predicted_boxes[0])
-                print("Predicted Boxes Shape (corners):", predicted_boxes_corners.shape)
-
-                # Convert GT to corners
                 gt_boxes_corners = convert_to_corners(ground_truth["boxes"])
-                print("GT Boxes Shape (corners):", gt_boxes_corners.shape)
+
+                # Debugging: Print box shapes and ranges
+                print("Predicted Boxes (Corners):", predicted_boxes_corners)
+                print("Ground Truth Boxes (Corners):", gt_boxes_corners)
 
                 # IoU Matching
-                print("Performing IoU Matching...")
                 iou_matrix = box_iou(predicted_boxes_corners, gt_boxes_corners)
                 print("IoU Matrix:", iou_matrix)
 
-                matched_indices = linear_sum_assignment(-iou_matrix.cpu().numpy(), maximize=True)
+                matched_indices = linear_sum_assignment(iou_matrix.cpu().numpy(), maximize=True)
                 matched_pred_indices, matched_gt_indices = matched_indices
 
-                print("Matched Indices (Predicted -> GT):", matched_indices)
+                print("matched_pred_indices:", matched_pred_indices)
+                print("matched_gt_indices", matched_gt_indices)
 
-                # Filter matched predictions and GT
-                matched_pred_boxes = predicted_boxes_corners[matched_pred_indices]
-                matched_gt_boxes = gt_boxes_corners[matched_gt_indices]
-                matched_pred_classes = predicted_classes[0][matched_pred_indices].argmax(dim=1)
-                matched_gt_classes = ground_truth["classes"][matched_gt_indices]
+                # Draw ground truth boxes
+                for gt_box in gt_boxes_corners:
+                    x1, y1, x2, y2 = gt_box.cpu().numpy()
+                    cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 3)
+                    cv2.putText(
+                        img,
+                        "GT",
+                        (int(x1), max(int(y1) - 20, 0)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (255, 0, 0),
+                        2,
+                    )
 
-                # Draw Predicted Boxes with IoU ≥ 0.5
-                for box, cls, gt_box, iou in zip(
-                        matched_pred_boxes.cpu().numpy(),
-                        matched_pred_classes.cpu().numpy(),
-                        matched_gt_boxes.cpu().numpy(),
-                        iou_matrix[matched_pred_indices, matched_gt_indices].cpu().numpy(),
-                ):
-                    if iou >= 0.1:  # Only plot matches with IoU ≥ 0.5
-                        x1, y1, x2, y2 = box
-                        l1_loss = np.abs(np.array([x1, y1, x2, y2]) - gt_box).sum()
+                # Draw matched predictions
+                for pred_idx, gt_idx in zip(matched_pred_indices, matched_gt_indices):
+                    # Retrieve IoU
+                    iou = iou_matrix[pred_idx, gt_idx].item()
 
-                        print(f"Predicted Box: ({x1}, {y1}, {x2}, {y2}), Class: {cls}, IoU: {iou:.2f}, L1: {l1_loss:.2f}")
-                        cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-                        cv2.putText(
-                            img,
-                            f"Pred: C{cls}, IoU: {iou:.2f}, L1: {l1_loss:.2f}",
-                            (int(x1), int(y1) - 20),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            1.0,
-                            (255, 0, 0),
-                            2,
-                        )
+                    # Retrieve boxes for visualization
+                    pred_box = predicted_boxes_corners[pred_idx].cpu().numpy()
+                    gt_box = gt_boxes_corners[gt_idx].cpu().numpy()
+
+                    # Calculate L1 distance
+                    l1_value = np.abs(pred_box - gt_box).sum()
+
+                    # Log IoU and L1 for debugging
+                    print(f"Matched Pair: Pred Box {pred_idx}, GT Box {gt_idx}, IoU: {iou:.4f}, L1: {l1_value:.2f}")
+
+                    # Draw predicted box
+                    x1, y1, x2, y2 = pred_box
+                    cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
+                    cv2.putText(
+                        img,
+                        f"IoU: {iou:.4f}, L1: {l1_value:.2f}",
+                        (int(x1), max(int(y1) - 20, 0)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (0, 255, 0),
+                        2,
+                    )
 
                 # Save visualization
                 output_path = os.path.join(output_dir, f"image_{processed_images}.jpg")
@@ -219,8 +208,6 @@ def visualize_predictions(model, dataloader, output_dir="visualizations", num_im
 
             except Exception as e:
                 print(f"Error processing image {processed_images}: {e}")
-
-
 
 
 
