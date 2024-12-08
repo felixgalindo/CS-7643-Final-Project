@@ -56,6 +56,8 @@ class ProjectedLidarDataset(Dataset):
             self.data = (self.data + 3) / 6
             self.data = torch.clamp(self.data, 0, 1)
             self.data[self.zeros_mask] = 0
+        else:
+            self.data = data
 
 
     def __len__(self):
@@ -391,12 +393,12 @@ def visualize_cae_result(cae_model, testing_data, downsample, recon_height, reco
         plt.tight_layout()
         plt.show()
 
-def visualize_lidar_data_no_model(input_lidar, num_images2show=6, vmin=0, vmax=1):
+def visualize_lidar_data_no_model(input_lidar, num_images2show=6, colormap='viridis', vmin=0, vmax=1):
     x = torch.FloatTensor(input_lidar[0:num_images2show]).to(device)
     fig, axes = plt.subplots(1, num_images2show, figsize=(3 * num_images2show, 3))
 
     for curr_img in range(num_images2show):
-        axes[curr_img].imshow(x[curr_img].cpu(), cmap='viridis', vmin=vmin, vmax=vmax)
+        axes[curr_img].imshow(x[curr_img].cpu(), cmap=colormap, vmin=vmin, vmax=vmax)
         axes[curr_img].axis('off')
 
         if curr_img == 3:
