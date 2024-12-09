@@ -13,6 +13,10 @@ import numpy as np
 import torch.nn.functional as F
 from torchvision.ops import box_iou
 from torchvision.ops import generalized_box_iou_loss
+import matplotlib
+matplotlib.use('Agg')  # Use a non-GUI backend
+import matplotlib.pyplot as plt
+
 
 
 #These get overwritten in main
@@ -118,7 +122,7 @@ def calculate_loss_metrics(
         # unmatched_gt_penalty = len(unmatched_gt_indices) * delta
 
         matched_pred_classes = predicted_classes[b, row_indices]
-        matched_gt_classes = torch.tensor(filtered_gt_classes[b])[col_indices].to(device)
+        matched_gt_classes = torch.tensor(filtered_gt_classes[b])[col_indices].clone().detach().to(device)
 
         #print(f"Batch {b}: Matched predicted classes shape: {matched_pred_classes.shape}")
         # print(f"Batch {b}: Matched ground truth classes shape: {matched_gt_classes.shape}")
@@ -203,11 +207,11 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
     :param beta: Weight for the box loss
     :param delta: Weight for the unmatched loss
     :param iou_threshold: IoU threshold for bounding box matching
-    :return: Scalar validation loss value
+    :param trialNumber: Trial number for logging
+    :return: Tuple of (validation loss, metrics dictionary)
     """
     model.eval()
     
-    # Initialize variables to store the accumulated metrics
     total_class_loss, total_box_loss, total_iou_loss = 0.0, 0.0, 0.0
     total_class_accuracy, total_box_accuracy = 0.0, 0.0
     total_f1_score, total_precision, total_recall = 0.0, 0.0, 0.0
@@ -248,15 +252,15 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
                 total_recall += recall
                 num_batches += 1
 
-                # Update progress bar with averaged metrics
+                # Update progress bar
                 pbar.set_postfix({
                     "Trial": f"{trialNumber}",
-                    "Avg Class Loss": f"{total_class_loss / num_batches:.4f}",
-                    "Avg Box Loss": f"{total_box_loss / num_batches:.4f}",
-                    "Avg IoU Loss": f"{total_iou_loss / num_batches:.4f}",
-                    "Avg Class Accuracy": f"{total_class_accuracy / num_batches:.4f}",
-                    "Avg Box Accuracy": f"{total_box_accuracy / num_batches:.4f}",
-                    "Avg F1 Score": f"{total_f1_score / num_batches:.4f}",
+                    "Class Loss": f"{total_class_loss / num_batches:.4f}",
+                    "Box Loss": f"{total_box_loss / num_batches:.4f}",
+                    "IoU Loss": f"{total_iou_loss / num_batches:.4f}",
+                    "Class Accuracy": f"{total_class_accuracy / num_batches:.4f}",
+                    "Box Accuracy": f"{total_box_accuracy / num_batches:.4f}",
+                    "F1 Score": f"{total_f1_score / num_batches:.4f}",
                 })
                 pbar.update(1)
 
@@ -270,9 +274,17 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
     avg_precision = total_precision / num_batches
     avg_recall = total_recall / num_batches
 
-    # Print the final averaged metrics
-    print(f"Validation Results for Trial {trialNumber}: ,"
-          f"Validation Results: ,"
+    # Compile metrics dictionary
+    val_metrics = {
+        "box_accuracy": avg_box_accuracy,
+        "class_accuracy": avg_class_accuracy,
+        "f1_score": avg_f1_score,
+        "precision": avg_precision,
+        "recall": avg_recall
+    }
+
+    # Log validation results
+    print(f"Validation Results for Trial {trialNumber}: "
           f"Class Loss = {avg_class_loss:.4f}, "
           f"Box Loss = {avg_box_loss:.4f}, "
           f"IoU Loss = {avg_iou_loss:.4f}, "
@@ -282,23 +294,31 @@ def evaluate_model(model, data_loader, alpha=1.0, beta=5.0, delta=2.0, iou_thres
           f"Precision = {avg_precision:.4f}, "
           f"Recall = {avg_recall:.4f}")
 
-    # Return the total loss as the scalar value for optimization
-    total_loss = avg_class_loss + avg_box_loss + avg_iou_loss  
-    return total_loss ,avg_box_accuracy
+    # Return the total validation loss and metrics dictionary
+    total_loss = avg_class_loss + avg_box_loss + avg_iou_loss
+    return total_loss, val_metrics
 
 
-def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=None):
-    model.train()
+
+def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epochs, alpha=1.0, beta=5, delta=2.0, iou_threshold=0.5, trial=None, plot_file=None):
+    metrics = {
+        "train_loss": [],
+        "val_loss": [],
+        "train_box_accuracy": [],
+        "val_box_accuracy": [],
+        "train_class_accuracy": [],
+        "val_class_accuracy": [],
+        "train_f1_score": [],
+        "val_f1_score": [],
+    }
+
     for epoch in range(num_epochs):
         epoch_class_loss, epoch_box_loss, epoch_iou_loss = 0.0, 0.0, 0.0
-        epoch_class_accuracy, epoch_box_accuracy = 0.0, 0.0
-        epoch_f1_score, epoch_precision, epoch_recall = 0.0, 0.0, 0.0
+        epoch_class_accuracy, epoch_box_accuracy, epoch_precision, epoch_recall = 0.0, 0.0, 0.0, 0.0
+        epoch_f1_score = 0.0
         num_batches = 0
-        trialNumber = 0
 
-        if trial is not None:
-            trialNumber=trial.number
-
+        model.train()
         with tqdm(total=len(train_loader), desc=f"Epoch {epoch + 1}/{num_epochs}") as pbar:
             for batch_features, batch_ground_truth in train_loader:
                 optimizer.zero_grad()
@@ -343,7 +363,7 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
 
                 # Update progress bar
                 pbar.set_postfix({
-                    "Trial": f"{trialNumber}",
+                    "Trial": f"{trial.number if trial else 'N/A'}",
                     "Class Loss": f"{epoch_class_loss / num_batches:.4f}",
                     "Box Loss": f"{epoch_box_loss / num_batches:.4f}",
                     "IoU Loss": f"{epoch_iou_loss / num_batches:.4f}",
@@ -355,30 +375,34 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
 
             scheduler.step()  # Update learning rate
 
-        # Normalize metrics by the number of batches
-        avg_class_loss = epoch_class_loss / num_batches
-        avg_box_loss = epoch_box_loss / num_batches
-        avg_iou_loss = epoch_iou_loss / num_batches
-        avg_class_accuracy = epoch_class_accuracy / num_batches
-        avg_box_accuracy = epoch_box_accuracy / num_batches
-        avg_f1_score = epoch_f1_score / num_batches
-        avg_precision = epoch_precision / num_batches
-        avg_recall = epoch_recall / num_batches
+        # Evaluate on validation data
+        val_loss, val_metrics = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold, trial.number if trial else 0)
+        val_box_accuracy = val_metrics["box_accuracy"]
+        val_class_accuracy = val_metrics["class_accuracy"]
+        val_f1_score = val_metrics["f1_score"]
+
+        # Normalize training metrics by the number of batches
+        avg_train_loss = (epoch_class_loss + epoch_box_loss + epoch_iou_loss) / num_batches
+        avg_train_box_accuracy = epoch_box_accuracy / num_batches
+        avg_train_class_accuracy = epoch_class_accuracy / num_batches
+        avg_train_f1_score = epoch_f1_score / num_batches
+
+        # Log metrics
+        metrics["train_loss"].append(float(avg_train_loss))
+        metrics["val_loss"].append(float(val_loss))
+        metrics["train_box_accuracy"].append(float(avg_train_box_accuracy))
+        metrics["val_box_accuracy"].append(float(val_box_accuracy))
+        metrics["train_class_accuracy"].append(float(avg_train_class_accuracy))
+        metrics["val_class_accuracy"].append(float(val_class_accuracy))
+        metrics["train_f1_score"].append(float(avg_train_f1_score))
+        metrics["val_f1_score"].append(float(val_f1_score))
 
         # Print epoch results
-        print(f"Trial {trialNumber} "
-              f"Epoch {epoch + 1}/{num_epochs}: "
-              f"Class Loss = {avg_class_loss:.4f}, "
-              f"Box Loss = {avg_box_loss:.4f}, "
-              f"IoU Loss = {avg_iou_loss:.4f}, "
-              f"Class Accuracy = {avg_class_accuracy:.4f}, "
-              f"Box Accuracy = {avg_box_accuracy:.4f}, "
-              f"F1 Score = {avg_f1_score:.4f}, "
-              f"Precision = {avg_precision:.4f}, "
-              f"Recall = {avg_recall:.4f}")
-
-        # Evaluate on validation data
-        _, val_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold, trialNumber)
+        print(f"Epoch {epoch + 1}/{num_epochs}: "
+              f"Train Loss = {avg_train_loss:.4f}, Train Box Accuracy = {avg_train_box_accuracy:.4f}, "
+              f"Train Class Accuracy = {avg_train_class_accuracy:.4f}, Train F1 Score = {avg_train_f1_score:.4f}, "
+              f"Val Loss = {val_loss:.4f}, Val Box Accuracy = {val_box_accuracy:.4f}, "
+              f"Val Class Accuracy = {val_class_accuracy:.4f}, Val F1 Score = {val_f1_score:.4f}")
 
         # Report intermediate results to Optuna
         if trial is not None:
@@ -387,6 +411,38 @@ def train_model(model, optimizer, scheduler, train_loader, val_loader, num_epoch
             # Prune the trial if it's performing poorly
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
+
+    # Plot learning curve
+    plt.figure(figsize=(12, 8))
+    plt.plot(metrics["train_loss"], label="Train Loss", marker='o')
+    plt.plot(metrics["val_loss"], label="Validation Loss", marker='o')
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Learning Curve")
+    plt.legend(loc='upper right')
+
+    # Add metrics as text under the legend
+    final_box_accuracy = metrics["val_box_accuracy"][-1]
+    final_class_accuracy = metrics["val_class_accuracy"][-1]
+    final_f1_score = metrics["val_f1_score"][-1]
+
+    metrics_text = (
+        f"Final Box Accuracy: {final_box_accuracy:.4f}\n"
+        f"Final Class Accuracy: {final_class_accuracy:.4f}\n"
+        f"Final F1 Score: {final_f1_score:.4f}"
+    )
+
+    ax = plt.gca()
+    ax.text(
+        0.95, 0.75, metrics_text, transform=ax.transAxes, fontsize=12, verticalalignment='top',
+        bbox=dict(facecolor='white', alpha=0.7), horizontalalignment='right'
+    )
+
+    # Save the plot
+    if plot_file is not None:
+        os.makedirs("./plots/", exist_ok=True)
+        plt.savefig("./plots/" + plot_file)
+        print(f"Learning curve saved to {plot_file}")
 
     return model
 
@@ -410,7 +466,7 @@ def objective(trial):
     # num_heads = trial.suggest_int('num_heads', 6, 8)  
 
     model_dim, num_heads, num_layers = trial.suggest_categorical('combination', valid_combinations)
-    num_epochs = 1
+    num_epochs = 3
 
     # Ensure valid combination
     if model_dim % num_heads != 0:
@@ -443,6 +499,14 @@ def objective(trial):
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
 
+    #Generate file name for learning curve
+    params_str = (
+        f"dim{model_dim}_heads{num_heads}_layers{num_layers}_epochs10_"
+        f"lr{lr:.1e}_wd{weight_decay:.1e}_alpha{alpha:.1e}_beta{beta:.1e}_delta{delta:.1e}"
+    )
+    plot_file = f"learning_curve_{params_str}.png"
+
+
     # Train the model using the train_model function
     try:
         train_model(
@@ -456,7 +520,8 @@ def objective(trial):
             beta=beta,
             delta=delta,
             iou_threshold=0.5,
-            trial=trial  # Pass the trial object for pruning
+            trial=trial,  # Pass the trial object for pruning
+            plot_file=plot_file
         )
     except optuna.exceptions.TrialPruned:
         print(f"Trial {trial.number} pruned based on validation box accuracy.")
@@ -464,7 +529,7 @@ def objective(trial):
 
     # Evaluate the final model on the validation set
     iou_threshold = 0.5
-    _, avg_box_accuracy = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trial.number)
+    _, metrics = evaluate_model(model, val_loader, alpha, beta, delta, iou_threshold,trial.number)
 
     # Attach model and parameters to trial for the callback
     trial.set_user_attr("model", model.state_dict())
@@ -480,7 +545,7 @@ def objective(trial):
         "num_epochs": num_epochs
     })
 
-    return avg_box_accuracy
+    return metrics["box_accuracy"]
 
 
 def hypertune():
@@ -553,16 +618,22 @@ def save_best_model_callback(study, trial):
 
 if __name__ == "__main__":
     # Dataset directories
-    pt_dir = "./data/image_features_more_layers"
-    pkl_dir = "./dataset/cam_box_per_image"
+    pt_dir = os.path.expanduser("./data/image_features_more_layers")
+    pkl_dir = os.path.expanduser("./dataset/cam_box_per_image")
+    lidar_dir = os.path.expanduser("./dataset/lidar_projected_cae_resized")
+
+    print("pkl_dir:", pkl_dir)
+    print("pt_dir:", pt_dir)
+    print("lidar_dir:", lidar_dir)
+
     os.makedirs("./data/models/", exist_ok=True)
 
     # Initialize dataset
-    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir, lidar_dir)
 
     # Split dataset
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.1 * len(dataset))
+    train_size = int(0.01 * len(dataset))
+    val_size = int(0.01 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 

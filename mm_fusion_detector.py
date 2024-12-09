@@ -29,7 +29,7 @@ class MMFusionDetector(nn.Module):
         self.beta1=beta
 
         # Project features to model_dim
-        self.featureProjector = nn.Linear(3840, model_dim)
+        self.featureProjector = nn.Linear(4352, model_dim)
 
         # Positional encoding only for encoder input (image features)
         self.encoderPositionalEncoder = sinusoidal_positional_encoding(49, model_dim)
