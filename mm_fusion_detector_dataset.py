@@ -6,7 +6,7 @@ import numpy as np
 
 
 class MMFusionDetectorDataset(Dataset):
-    def __init__(self, pkl_dir, pt_dir, lidar_dir):
+    def __init__(self, pkl_dir, pt_dir, lidar_dir, data_type="Image"):
         """
         Initialize the dataset.
         Args:
@@ -17,8 +17,9 @@ class MMFusionDetectorDataset(Dataset):
         self.pkl_dir = pkl_dir
         self.pt_dir = pt_dir
         self.lidar_dir = lidar_dir
-        self.valid_samples = self._build_valid_samples()
+        self.data_type = data_type
 
+        self.valid_samples = self._build_valid_samples()
         if not self.valid_samples:
             raise ValueError("No valid samples found. Please check your data directories.")
 
@@ -34,14 +35,36 @@ class MMFusionDetectorDataset(Dataset):
         """
         valid_samples = []
 
-        for root, _, files in os.walk(self.pkl_dir):
-            for file in files:
-                if file.endswith(".pkl"):
-                    pkl_path = os.path.join(root, file)
-                    pt_path = self._construct_pt_path(pkl_path)
-                    lidar_path = self._construct_lidar_path(pkl_path)
-                    if os.path.isfile(pt_path) and (lidar_path is not None):
-                        valid_samples.append((pkl_path, pt_path, lidar_path))
+        if self.data_type == "Image":
+            for root, _, files in os.walk(self.pkl_dir):
+                for file in files:
+                    if file.endswith(".pkl"):
+                        pkl_path = os.path.join(root, file)
+                        pt_path = self._construct_pt_path(pkl_path)
+                        lidar_path = None
+                        if os.path.isfile(pt_path):
+                            valid_samples.append((pkl_path, pt_path, lidar_path))
+
+        elif self.data_type == "Lidar":
+            for root, _, files in os.walk(self.pkl_dir):
+                for file in files:
+                    if file.endswith(".pkl"):
+                        pkl_path = os.path.join(root, file)
+                        pt_path = None
+                        lidar_path = self._construct_lidar_path(pkl_path)
+                        if os.path.isfile(str(lidar_path)):
+                            valid_samples.append((pkl_path, pt_path, lidar_path))
+
+        elif self.data_type == "Image_Lidar":
+            for root, _, files in os.walk(self.pkl_dir):
+                for file in files:
+                    if file.endswith(".pkl"):
+                        pkl_path = os.path.join(root, file)
+                        pt_path = self._construct_pt_path(pkl_path)
+                        lidar_path = self._construct_lidar_path(pkl_path)
+                        if os.path.isfile(pt_path) and (lidar_path is not None):
+                            valid_samples.append((pkl_path, pt_path, lidar_path))
+
 
         np.random.shuffle(valid_samples)
         return valid_samples
@@ -77,9 +100,8 @@ class MMFusionDetectorDataset(Dataset):
         basename = os.path.basename(pkl_path)
         context_name = basename.split("_camera_image_camera")[0]
         lidar_filename = basename.replace(".pkl", "_cae_feature.pkl")
-
-
         full_lidar_path = os.path.join(self.lidar_dir, context_name, lidar_filename)
+
         if os.path.isfile(full_lidar_path):
             return full_lidar_path
         else:
@@ -140,18 +162,33 @@ class MMFusionDetectorDataset(Dataset):
         ground_truth["classes"] = vehicle_classes
         ground_truth["boxes"] = vehicle_boxes
 
-        # Load the .pt file
-        image_features = torch.load(pt_path, weights_only=False)
+        if self.data_type == "Image":
+            # Load the .pt file
+            output_features = torch.load(pt_path, weights_only=False)
+        elif self.data_type == "Lidar":
+            # Load the .pt lidar file
+            with open(lidar_path, "rb") as handle:
+                lidar_data = pickle.load(handle)
 
-        # Load the .pt lidar file
-        with open(lidar_path, "rb") as handle:
-            lidar_data = pickle.load(handle)
+            lidar_features = torch.from_numpy(lidar_data["lidar_extracted"])
+            output_features = lidar_features.unsqueeze(0)
 
-        lidar_features = torch.from_numpy(lidar_data["lidar_extracted"])
-        lidar_features = lidar_features.unsqueeze(0)
-        combined_features = torch.cat((lidar_features, image_features), dim=1)
+        elif self.data_type == "Image_Lidar":
+            # Load the .pt file
+            image_features = torch.load(pt_path, weights_only=False)
+            # Load the .pt lidar file
+            with open(lidar_path, "rb") as handle:
+                lidar_data = pickle.load(handle)
 
-        return combined_features, ground_truth  # [image_features and lidar_features], [filtered ground_truth classes and boxes]
+            lidar_features = torch.from_numpy(lidar_data["lidar_extracted"])
+            lidar_features = lidar_features.unsqueeze(0)
+
+            output_features = torch.cat((lidar_features, image_features), dim=1)
+        else:
+            print(f"No valid data were loaded. ")
+            output_features = None # Dummy case should not happen
+
+        return output_features, ground_truth  # [image_features and lidar_features], [filtered ground_truth classes and boxes]
 
 
     
