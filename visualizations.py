@@ -64,7 +64,7 @@ def load_model_from_file(model_path, device):
     return model, params
 
 def visualize_predictions(
-    model, dataloader, output_dir="visualizations", num_images=5, image_size=(1920, 1280)
+    model, dataloader, img_dir, output_dir="visualizations", num_images=5, image_size=(1920, 1280)
 ):
     """
     Visualize predictions by overlaying predicted and ground truth boxes on images.
@@ -114,16 +114,22 @@ def visualize_predictions(
             print(f"\nProcessing Image {processed_images}/{num_images} (Image Index: {i})")
 
             try:
+
+                img_name_prefix = ground_truth["feature_tensor_fn"].replace(ground_truth["context_name"] + '_', '')
+                pattern = img_name_prefix.split("_timestamp")[0]
+                pattern = pattern.split("_camera_1")[-1]
+
                 # Load the image
-                image_path = (
-                    "./dataset/compressed_camera_images2/"
-                    + ground_truth["context_name"]
-                    + "/"
-                    + ground_truth["feature_tensor_fn"]
+                image_path = os.path.join(
+                    img_dir,
+                    ground_truth["context_name"],
+                    ground_truth["feature_tensor_fn"]
                         .replace(ground_truth["context_name"] + "_", "")
-                        .replace("camera_image_camera_", "camera_image_camera-")
+                        .replace(pattern, "")
+                        .replace("_camera_1_", "_camera-1_")
                         .replace(".pt", ".jpg")
                 )
+
                 img = cv2.imread(image_path)
                 if img is None:
                     print(f"Warning: Could not read image at {image_path}")
@@ -214,10 +220,11 @@ def visualize_predictions(
 if __name__ == "__main__":
 
     # Define constants
-    MODEL_PATH = "./data/models/best_model_trial_0_dim256_heads8_layers4_epochs10_lr9.3e-05_wd1.6e-05_alpha2.4e+00_beta3.8e+01_delta4.4e+01_boxacc0.2802.pth"
-    DATA_DIR = "./dataset/cam_box_per_image"
-    PT_DIR = "./data/image_features_more_layers"
-    OUTPUT_DIR = "./data/visualizations/"
+    MODEL_PATH = "/home/meowater/Documents/ssd_drive/best_model_trial_0_dim256_heads8_layers4_epochs10_lr9.3e-05_wd1.6e-05_alpha2.4e+00_beta3.8e+01_delta4.4e+01_boxacc0.2802.pth"
+    DATA_DIR = "/home/meowater/Documents/ssd_drive/cam_box_per_image"
+    PT_DIR = "/home/meowater/Documents/ssd_drive/image_features_more_layers"
+    OUTPUT_DIR = "/home/meowater/Documents/ssd_drive/prediction"
+    IMG_DIR = "/home/meowater/Documents/ssd_drive/compressed_camera_images2"
     NUM_IMAGES = 500
 
     # Parse model parameters from the file name
@@ -246,6 +253,6 @@ if __name__ == "__main__":
 
     # Run visualization
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    visualize_predictions(model, dataloader, output_dir=OUTPUT_DIR, num_images=NUM_IMAGES)
+    visualize_predictions(model, dataloader, img_dir=IMG_DIR, output_dir=OUTPUT_DIR, num_images=5)
     print("Visualization completed.")
 
