@@ -214,9 +214,10 @@ def visualize_predictions(
 if __name__ == "__main__":
 
     # Define constants
-    MODEL_PATH = "./data/models/best_model_trial_0_dim256_heads8_layers4_epochs10_lr9.3e-05_wd1.6e-05_alpha2.4e+00_beta3.8e+01_delta4.4e+01_boxacc0.2802.pth"
+    MODEL_PATH = "./data/models/best_model_trial_4_dim512_heads8_layers4_epochs1_lr5.5e-05_wd3.1e-05_alpha2.2e+01_beta4.2e+01_delta3.1e+01_boxacc0.1294.pth"
     DATA_DIR = "./dataset/cam_box_per_image"
     PT_DIR = "./data/image_features_more_layers"
+    LIDAR_DIR = "./dataset/lidar_projected_cae_resized"
     OUTPUT_DIR = "./data/visualizations/"
     NUM_IMAGES = 500
 
@@ -240,7 +241,7 @@ if __name__ == "__main__":
 
     # Prepare the dataset and dataloader
 
-    dataset = MMFusionDetectorDataset(DATA_DIR, PT_DIR)
+    dataset = MMFusionDetectorDataset(DATA_DIR, PT_DIR, LIDAR_DIR)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=lambda x: x[0])
     print("DataLoader initialized.")
 
