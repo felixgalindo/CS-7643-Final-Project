@@ -71,16 +71,16 @@ def load_lidar_data(num_images=1000,
     start_time = time.time()
 
     reduced_height = round(input_h // downsample)
-    reduced_width = round(input_w // downsample)
+    # reduced_width = round(input_w // downsample)
 
-    output_data = np.zeros((num_images, reduced_height, reduced_width))
+    output_data = np.zeros((num_images, reduced_height, reduced_height))
 
     for ind, fn in enumerate(selected_list):
         with open(fn, 'rb') as handle:
             projected_lidar = pickle.load(handle)
 
         output_data[ind] = resize(projected_lidar["lidar_projection"],
-                                  output_shape=(reduced_height, reduced_width),
+                                  output_shape=(reduced_height, reduced_height),
                                   anti_aliasing=True)
 
     end_time = time.time()

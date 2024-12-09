@@ -8,10 +8,11 @@ from waymo_open_dataset.utils.range_image_utils import build_camera_depth_image
 from waymo_open_dataset.v2.perception.utils import lidar_utils
 from tqdm import tqdm
 
-dataset_dir = '/home/meowater/Documents/ssd_drive/training/'
-search_path = '/home/meowater/Documents/ssd_drive/training/lidar/'
+dataset_dir = '/home/meowater/Desktop/training/'
+search_path = '/home/meowater/Desktop/training/lidar/'
 file_list = glob.glob(search_path + '*.parquet')
-save_path = '/home/meowater/Documents/ssd_drive/lidar_projected/'
+save_path = '/home/meowater/Documents/ssd_drive/lidar_projected2/'
+
 
 def read(tag: str, context_name) -> dd.DataFrame:
   """Creates a Dask DataFrame for the component specified by its tag."""
@@ -35,7 +36,7 @@ def get_extrinsic(calibration):
 
   # Perform projection and return projected image coordinates (u, v, ok).
   return extrinsic
-save_path
+
 def get_data_frames(context_name):
     cam_img_df = read('camera_image', context_name)
     lidar_df = read('lidar', context_name)
@@ -100,27 +101,31 @@ def extract_data(cam_img_df, lidar_df, projections_df, camera_calib_df, lidar_ca
                 lidar_projection_list = tf.concat([lidar_projection_list, lidar2d], axis=0)
 
     return lidar_projection_list, basic_info_list
-for fn in tqdm(file_list[14:]):
-    file_path, base_name = os.path.split(fn)
-    context_name = base_name.replace('.parquet', '')
-    dataframes = get_data_frames(context_name)
-    lidar_projected, basic_infos = extract_data(dataframes["cam_img_df"], dataframes["lidar_df"],
-                           dataframes["projections_df"], dataframes["camera_calib_df"],
-                           dataframes["lidar_calib_df"])
 
-    lidar_projected = lidar_projected.numpy()
 
-    sub_folder = os.path.join(save_path, context_name)
-    if not os.path.exists(sub_folder):
-        os.mkdir(sub_folder)
+# for fn in tqdm(file_list[14:15]):
 
-    for ind, basic_info in enumerate(basic_infos):
-        output_basename = context_name + '_camera_image_camera_1_timestamp-' + basic_info["timestamp"] + '.pkl'
-        output_fn = os.path.join(sub_folder, output_basename)
+fn = '/home/meowater/Desktop/training/lidar/6229371035421550389_2220_000_2240_000.parquet'
+file_path, base_name = os.path.split(fn)
+context_name = base_name.replace('.parquet', '')
+dataframes = get_data_frames(context_name)
+lidar_projected, basic_infos = extract_data(dataframes["cam_img_df"], dataframes["lidar_df"],
+                       dataframes["projections_df"], dataframes["camera_calib_df"],
+                       dataframes["lidar_calib_df"])
 
-        basic_info["lidar_projection"] = lidar_projected[ind, :, :].squeeze()
+lidar_projected = lidar_projected.numpy()
 
-        with open(output_fn, 'wb') as f:
-            pickle.dump(basic_info, f)
+sub_folder = os.path.join(save_path, context_name)
+if not os.path.exists(sub_folder):
+    os.makedirs(sub_folder)
+
+for ind, basic_info in enumerate(basic_infos):
+    output_basename = context_name + '_camera_image_camera_1_timestamp-' + basic_info["timestamp"] + '.pkl'
+    output_fn = os.path.join(sub_folder, output_basename)
+
+    basic_info["lidar_projection"] = lidar_projected[ind, :, :].squeeze()
+
+    with open(output_fn, 'wb') as f:
+        pickle.dump(basic_info, f)
 
 

@@ -79,22 +79,22 @@ class CAE(nn.Module):
             nn.Dropout(0.25),
             nn.ReLU(),
 
-            nn.Conv2d(32, out_channels=64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(32, out_channels=64, kernel_size=2, stride=2, padding=0),
             nn.BatchNorm2d(64),
             nn.Dropout(0.25),
             nn.ReLU(),
 
-            nn.Conv2d(64, out_channels=128, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, out_channels=128, kernel_size=2, stride=2, padding=2),
             nn.BatchNorm2d(128),
             nn.Dropout(0.25),
             nn.ReLU(),
 
-            nn.Conv2d(128, out_channels=256, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(128, out_channels=256, kernel_size=3, stride=3, padding=0),
             nn.BatchNorm2d(256),
             nn.Dropout(0.25),
             nn.ReLU(),
 
-            nn.Conv2d(256, out_channels=512, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(256, out_channels=512, kernel_size=2, stride=2, padding=0),
             nn.BatchNorm2d(512),
             nn.Dropout(0.25),
             nn.ReLU(),
@@ -102,19 +102,19 @@ class CAE(nn.Module):
         )
 
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(512, out_channels=256, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(512, out_channels=256, kernel_size=2, stride=2, padding=0, output_padding=0),
             nn.BatchNorm2d(256),
             nn.ReLU(),
 
-            nn.ConvTranspose2d(256, out_channels=128, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(256, out_channels=128, kernel_size=3, stride=3, padding=0, output_padding=0),
             nn.BatchNorm2d(128),
             nn.ReLU(),
 
-            nn.ConvTranspose2d(128, out_channels=64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(128, out_channels=64, kernel_size=2, stride=2, padding=2, output_padding=0),
             nn.BatchNorm2d(64),
             nn.ReLU(),
 
-            nn.ConvTranspose2d(64, out_channels=32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(64, out_channels=32, kernel_size=2, stride=2, padding=0, output_padding=0),
             nn.BatchNorm2d(32),
             nn.ReLU(),
 
