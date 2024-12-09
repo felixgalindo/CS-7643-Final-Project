@@ -553,27 +553,28 @@ def save_best_model_callback(study, trial):
 
 if __name__ == "__main__":
     # Dataset directories
-    pt_dir = "./data/image_features_more_layers"
-    pkl_dir = "./dataset/cam_box_per_image"
-    os.makedirs("./data/models/", exist_ok=True)
+    pt_dir = "/home/meowater/Documents/ssd_drive/image_features_more_layers/"
+    pkl_dir = "/home/meowater/Documents/ssd_drive/cam_box_per_image/"
+    lidar_dir = '/home/meowater/Documents/ssd_drive/lidar_projected_cae_resized/'
+    # os.makedirs("/home/meowater/Documents/ssd_drive/models/", exist_ok=True)
 
     # Initialize dataset
-    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir)
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir, lidar_dir)
 
-    # Split dataset
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.1 * len(dataset))
-    test_size = len(dataset) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+    # # Split dataset
+    # train_size = int(0.7 * len(dataset))
+    # val_size = int(0.1 * len(dataset))
+    # test_size = len(dataset) - train_size - val_size
+    # train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+    #
+    # # Data loaders
+    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
 
-    # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
-
-    #Run HyperTuner
-    total_trials = 10
-    maxParralelTrials = 5
-    hypertune()
+    # #Run HyperTuner
+    # total_trials = 10
+    # maxParralelTrials = 5
+    # hypertune()
 
     # # Dataset directories
     # pt_dir = os.path.expanduser("./data/image_features_more_layers")

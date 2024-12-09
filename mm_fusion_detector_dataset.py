@@ -6,15 +6,17 @@ import numpy as np
 
 
 class MMFusionDetectorDataset(Dataset):
-    def __init__(self, pkl_dir, pt_dir):
+    def __init__(self, pkl_dir, pt_dir, lidar_dir):
         """
         Initialize the dataset.
         Args:
             pkl_dir: Directory containing .pkl files with ground truth data.
             pt_dir: Directory containing .pt files with image features.
+            lidar_dir: Directory containing .pkl files with lidar features.
         """
         self.pkl_dir = pkl_dir
         self.pt_dir = pt_dir
+        self.lidar_dir = lidar_dir
         self.valid_samples = self._build_valid_samples()
 
         if not self.valid_samples:
@@ -37,9 +39,10 @@ class MMFusionDetectorDataset(Dataset):
                 if file.endswith(".pkl"):
                     pkl_path = os.path.join(root, file)
                     pt_path = self._construct_pt_path(pkl_path)
+                    lidar_path = self._construct_lidar_path(pkl_path)
+                    if os.path.isfile(pt_path) and (lidar_path is not None):
+                        valid_samples.append((pkl_path, pt_path, lidar_path))
 
-                    if os.path.exists(pt_path):
-                        valid_samples.append((pkl_path, pt_path))
         np.random.shuffle(valid_samples)
         return valid_samples
 
@@ -60,17 +63,40 @@ class MMFusionDetectorDataset(Dataset):
         pt_file_path = pt_file_path.replace(f"{containing_folder}_", "")
         pt_file_path = pt_file_path.replace("camera_image_camera_", "camera_image_camera-")
 
+
         return pt_file_path
+
+    def _construct_lidar_path(self, pkl_path):
+        """
+        Construct the corresponding .pkl file path of extracted lidar for a given .pkl file path.
+        Args:
+            pkl_path: full path of the .pkl file that contains the box info
+        Returns:
+            Corresponding .pkl file path.
+        """
+        basename = os.path.basename(pkl_path)
+        context_name = basename.split("_camera_image_camera")[0]
+        lidar_filename = basename.replace(".pkl", "_cae_feature.pkl")
+
+
+        full_lidar_path = os.path.join(self.lidar_dir, context_name, lidar_filename)
+        if os.path.isfile(full_lidar_path):
+            return full_lidar_path
+        else:
+            return None
+
+
 
     def __len__(self):
         return len(self.valid_samples)
 
     def __getitem__(self, idx):
-        pkl_path, pt_path = self.valid_samples[idx]
+        pkl_path, pt_path, lidar_path = self.valid_samples[idx]
 
         # Load the pickle file
         with open(pkl_path, "rb") as file:
             ground_truth = pickle.load(file)
+
 
         if "box_type" in ground_truth and "box_loc" in ground_truth:
             ground_truth["classes"] = ground_truth["box_type"]
@@ -117,7 +143,15 @@ class MMFusionDetectorDataset(Dataset):
         # Load the .pt file
         image_features = torch.load(pt_path, weights_only=False)
 
-        return image_features, ground_truth  # [image_features], [filtered ground_truth classes and boxes]
+        # Load the .pt lidar file
+        with open(lidar_path, "rb") as handle:
+            lidar_data = pickle.load(handle)
+
+        lidar_features = torch.from_numpy(lidar_data["lidar_extracted"])
+        lidar_features = lidar_features.unsqueeze(0)
+        combined_features = torch.cat((lidar_features, image_features), dim=1)
+
+        return combined_features, ground_truth  # [image_features and lidar_features], [filtered ground_truth classes and boxes]
 
 
     
