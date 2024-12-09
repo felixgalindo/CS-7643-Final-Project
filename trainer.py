@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 train_loader = None
 val_loader = None
 total_trials = 1
-maxParralelTrials = 5
+maxParralelTrials = 1
 
 def convert_to_corners(boxes):
     """
@@ -466,7 +466,7 @@ def objective(trial):
     # num_heads = trial.suggest_int('num_heads', 6, 8)  
 
     model_dim, num_heads, num_layers = trial.suggest_categorical('combination', valid_combinations)
-    num_epochs = 3
+    num_epochs = 10
 
     # Ensure valid combination
     if model_dim % num_heads != 0:
@@ -487,6 +487,7 @@ def objective(trial):
 
     # Initialize model
     model = MMFusionDetector(
+        input_dim=512, 
         model_dim=model_dim, 
         num_heads=num_heads, 
         num_layers=num_layers, 
@@ -629,17 +630,18 @@ if __name__ == "__main__":
     os.makedirs("./data/models/", exist_ok=True)
 
     # Initialize dataset
-    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir, lidar_dir)
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir, lidar_dir, "Lidar")
 
     # Split dataset
-    train_size = int(0.01 * len(dataset))
-    val_size = int(0.01 * len(dataset))
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.1 * len(dataset))
+
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
     # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=4,pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=None,pin_memory=False)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=None,pin_memory=False)
 
     #Run HyperTuner
     total_trials = 10
@@ -677,17 +679,20 @@ if __name__ == "__main__":
     # # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  
 
     # # Initialize model and optimizer
-    # model_dim = 256  
+    # model_dim = 256
     # num_layers = 6
-    # num_heads = 8    
-    # model = MMFusionDetector(model_dim, num_heads=num_heads, num_layers=num_layers)
-
-    # # Optimizer 
+    # num_heads = 8
+    #
+    # input_dim = dataset[0][0].shape[1]
+    #
+    # model = MMFusionDetector(input_dim=input_dim, model_dim=model_dim, num_heads=num_heads, num_layers=num_layers)
+    #
+    # # Optimizer
     # optimizer = torch.optim.Adam(model.parameters(), lr=10e-4)
-
+    #
     # # Learning rate scheduler
     # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-
+    #
     # # Train the model
     # print("Starting training...")
     # trained_model = train_model(
@@ -698,7 +703,7 @@ if __name__ == "__main__":
     #     val_loader=val_loader,
     #     num_epochs=20
     # )
-
+    #
     # # Evaluate the model on the test set
     # print("Evaluating on test set...")
     # evaluate_model(trained_model, test_loader)

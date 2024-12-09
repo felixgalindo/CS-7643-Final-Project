@@ -214,7 +214,7 @@ def visualize_predictions(
 if __name__ == "__main__":
 
     # Define constants
-    MODEL_PATH = "./data/models/best_model_trial_4_dim512_heads8_layers4_epochs1_lr5.5e-05_wd3.1e-05_alpha2.2e+01_beta4.2e+01_delta3.1e+01_boxacc0.1294.pth"
+    MODEL_PATH = "./data/models/best_model_trial_2_dim128_heads8_layers4_epochs10_lr6.8e-05_wd1.1e-05_alpha4.4e+01_beta3.3e+01_delta1.5e+00_boxacc0.3290.pth"
     DATA_DIR = "./dataset/cam_box_per_image"
     PT_DIR = "./data/image_features_more_layers"
     LIDAR_DIR = "./dataset/lidar_projected_cae_resized"
