@@ -161,17 +161,29 @@ def generate_predictions(
 
 if __name__ == "__main__":
 
+    data_type = "Image_Lidar"
     # Define constants
-    MODEL_PATH = "/home/meowater/Documents/ssd_drive/best_model_trial_0_dim256_heads8_layers4_epochs10_lr9.3e-05_wd1.6e-05_alpha2.4e+00_beta3.8e+01_delta4.4e+01_boxacc0.2802.pth"
+    if data_type == "Image":
+        MODEL_PATH = "/home/meowater/Documents/ssd_drive/models/Image/best_model_trial_0_dim256_heads8_layers4_epochs10_lr9.3e-05_wd1.6e-05_alpha2.4e+00_beta3.8e+01_delta4.4e+01_boxacc0.2802.pth"
+        input_dim = 3840
+    elif data_type == "Lidar":
+        MODEL_PATH = "/home/meowater/Documents/ssd_drive/models/Lidar/"
+        input_dim = 512
+    elif data_type == "Image_Lidar":
+        MODEL_PATH = "/home/meowater/Documents/ssd_drive/models/Image_Lidar/best_model_trial_2_dim128_heads8_layers4_epochs10_lr6.8e-05_wd1.1e-05_alpha4.4e+01_beta3.3e+01_delta1.5e+00_boxacc0.3290.pth"
+        input_dim = 4352
+
     DATA_DIR = "/home/meowater/Documents/ssd_drive/cam_box_per_image"
     PT_DIR = "/home/meowater/Documents/ssd_drive/image_features_more_layers"
-    OUTPUT_DIR = "/home/meowater/Documents/ssd_drive/prediction"
+    LIDAR_DIR = "/home/meowater/Documents/ssd_drive/lidar_projected_cae_resized"
+    OUTPUT_DIR = "/home/meowater/Documents/ssd_drive/prediction_" + data_type
     IMG_DIR = "/home/meowater/Documents/ssd_drive/compressed_camera_images2"
     # Parse model parameters from the file name
     params = parse_model_params_from_filename(MODEL_PATH)
 
     # Initialize the model with parsed parameters
     model = MMFusionDetector(
+        input_dim=input_dim,
         model_dim=params["model_dim"],
         num_heads=params["num_heads"],
         num_layers=params["num_layers"],
@@ -187,13 +199,12 @@ if __name__ == "__main__":
 
     # Prepare the dataset and dataloader
 
-    dataset = MMFusionDetectorDataset(DATA_DIR, PT_DIR)
+    dataset = MMFusionDetectorDataset(DATA_DIR, PT_DIR, LIDAR_DIR, data_type=data_type)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=lambda x: x[0])
 
     print("DataLoader initialized.")
-    #
-    # Run visualization
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     generate_predictions(model, dataloader, output_dir=OUTPUT_DIR, num_images=len(dataset.valid_samples))
-    # print("Visualization completed.")
+
 
