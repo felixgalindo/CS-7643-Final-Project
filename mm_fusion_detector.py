@@ -20,7 +20,7 @@ def sinusoidal_positional_encoding(seq_len, model_dim):
     return pe.unsqueeze(0)  # Add batch dimension
 
 class MMFusionDetector(nn.Module):
-    def __init__(self, model_dim=256, num_heads=8, num_layers=6, num_queries=100, num_classes=2, alpha=10, beta=10, delta=.1):
+    def __init__(self, input_dim, model_dim=256, num_heads=8, num_layers=6, num_queries=100, num_classes=2, alpha=10, beta=10, delta=.1):
         super(MMFusionDetector, self).__init__()
         self.model_dim = model_dim
         self.num_queries = num_queries
@@ -29,7 +29,7 @@ class MMFusionDetector(nn.Module):
         self.beta1=beta
 
         # Project features to model_dim
-        self.featureProjector = nn.Linear(3840, model_dim)
+        self.featureProjector = nn.Linear(input_dim, model_dim)
 
         # Positional encoding only for encoder input (image features)
         self.encoderPositionalEncoder = sinusoidal_positional_encoding(49, model_dim)
