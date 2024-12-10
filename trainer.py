@@ -466,7 +466,7 @@ def objective(trial):
     # num_heads = trial.suggest_int('num_heads', 6, 8)  
 
     model_dim, num_heads, num_layers = trial.suggest_categorical('combination', valid_combinations)
-    num_epochs = 10
+    num_epochs = 20
 
     # Ensure valid combination
     if model_dim % num_heads != 0:
@@ -487,7 +487,7 @@ def objective(trial):
 
     # Initialize model
     model = MMFusionDetector(
-        input_dim=512, 
+        input_dim=4352, 
         model_dim=model_dim, 
         num_heads=num_heads, 
         num_layers=num_layers, 
@@ -630,7 +630,7 @@ if __name__ == "__main__":
     os.makedirs("./data/models/", exist_ok=True)
 
     # Initialize dataset
-    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir, lidar_dir, "Lidar")
+    dataset = MMFusionDetectorDataset(pkl_dir, pt_dir, lidar_dir, "Image_Lidar")
 
     # Split dataset
     train_size = int(0.7 * len(dataset))
@@ -640,8 +640,8 @@ if __name__ == "__main__":
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
     # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=None,pin_memory=False)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=None,pin_memory=False)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=None,pin_memory=False)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=True, num_workers=16, collate_fn=custom_collate,prefetch_factor=None,pin_memory=False)
 
     #Run HyperTuner
     total_trials = 10

@@ -225,6 +225,7 @@ if __name__ == "__main__":
     PT_DIR = "./data/image_features_more_layers"
     LIDAR_DIR = "./dataset/lidar_projected_cae_resized"
     OUTPUT_DIR = "./data/visualizations/"
+    IMG_DIR = "./dataset/compressed_camera_images2"
     NUM_IMAGES = 500
 
     # Parse model parameters from the file name
@@ -232,6 +233,7 @@ if __name__ == "__main__":
 
     # Initialize the model with parsed parameters
     model = MMFusionDetector(
+        input_dim=4352,
         model_dim=params["model_dim"],
         num_heads=params["num_heads"],
         num_layers=params["num_layers"],
@@ -247,12 +249,12 @@ if __name__ == "__main__":
 
     # Prepare the dataset and dataloader
 
-    dataset = MMFusionDetectorDataset(DATA_DIR, PT_DIR, LIDAR_DIR)
+    dataset = MMFusionDetectorDataset(DATA_DIR, PT_DIR, LIDAR_DIR, "Image_Lidar")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=lambda x: x[0])
     print("DataLoader initialized.")
 
     # Run visualization
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    visualize_predictions(model, dataloader, img_dir=IMG_DIR, output_dir=OUTPUT_DIR, num_images=5)
+    visualize_predictions(model, dataloader, img_dir=IMG_DIR, output_dir=OUTPUT_DIR, num_images=500)
     print("Visualization completed.")
 
