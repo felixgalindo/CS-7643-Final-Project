@@ -8,7 +8,8 @@ import os
 import glob
 import pickle
 from tqdm import tqdm
-
+import numpy as np
+from trainer import convert_to_corners
 # Load Pretrained Mask R-CNN model
 model = maskrcnn_resnet50_fpn(pretrained=True)
 model.eval()
@@ -73,36 +74,65 @@ COCO_CLASSES = [
 ]
 
 # Function to process a folder of images and return bounding boxes
-def process_image_folder(image_path):
+def process_image_folder(image_path, ground_truth):
 
     original_img, img_tensor = load_image(image_path)
     # Get bounding boxes for the current image
     boxes, labels, scores = get_predictions(img_tensor)
 
+    # Find matching ground truth and include that in the output
+
     output = {
-        "boxes": boxes,
-        "scores": scores
+        "predicted_boxes_corners": boxes,
+        "predicted_scores": scores,
+        "gt_boxes_corners": ground_truth
     }
     # Optionally visualize the bounding boxes
     # visualize_predictions(original_img, boxes, masks, labels, COCO_CLASSES)
     return output
 
+def load_ground_truth(gt_dir, sub_folder, file_name):
+    gt_fullname = os.path.join(gt_dir, sub_folder, file_name)
+
+    if os.path.isfile(gt_fullname):
+        with open(gt_fullname, "rb") as f:
+            gt_data = pickle.load(f)
+
+        gt_boxes_corners = []
+        for cls, box in zip(gt_data["box_type"], gt_data["box_loc"]):
+            if cls == 1:
+                # convert tuple into a list
+                box_loc = torch.tensor(box).unsqueeze(0)
+                box_corner = convert_to_corners(box_loc)
+                gt_boxes_corners.append(box_corner)
+
+        return gt_boxes_corners
+    else:
+        # print(f"There are no matching file for {gt_fullname}. Investigate.")
+        return None
 
 # path to your folder
 folder_path = "/home/meowater/Documents/ssd_drive/compressed_camera_images2/"
 box_path = '/home/meowater/Documents/ssd_drive/maskRCNN_boxes/'
-
+gt_path = '/home/meowater/Documents/ssd_drive/cam_box_per_image/'
 img_list = glob.glob(os.path.join(folder_path, '*/*.jpg'), recursive=True)
+
 
 for fn in tqdm(img_list):
     file_path, base_name = os.path.split(fn)
     context_name = file_path.split('/')[-1]
 
     name_prefix = context_name + '_' + base_name.split('.')[0]
+    gt_name = name_prefix + '.pkl'
+    gt_name = gt_name.replace('_camera-1_', '_camera_1_')
+    # load groundtruth
+    gt_boxes = load_ground_truth(gt_path, context_name, gt_name)
 
-    sub_save_path = os.path.join(box_path, context_name)
-    os.makedirs(sub_save_path, exist_ok=True)
-    new_fn = os.path.join(sub_save_path, name_prefix + '_maskCNN.pkl')
-    box_output = process_image_folder(fn)
-    with open(new_fn, 'wb') as handle:
-        pickle.dump(box_output, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    if gt_boxes is not None:
+        sub_save_path = os.path.join(box_path, context_name)
+        os.makedirs(sub_save_path, exist_ok=True)
+        new_fn = os.path.join(sub_save_path, name_prefix + '_maskCNN.pkl')
+        box_output = process_image_folder(fn, gt_boxes)
+
+        with open(new_fn, 'wb') as handle:
+            pickle.dump(box_output, handle, protocol=pickle.HIGHEST_PROTOCOL)
