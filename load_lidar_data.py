@@ -87,7 +87,7 @@ def load_lidar_data(num_images=1000,
 
     elapsed_time = end_time - start_time
     print("Elapsed time to load the lidar data: ", elapsed_time)
-    return output_data
+    return output_data, selected_list
 
 
 
