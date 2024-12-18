@@ -45,38 +45,51 @@ We combined image and LiDAR features early in the pipeline to create a unified h
 - **LiDAR features** contribute precise spatial and depth information.
 
 #### Positional Encoding
-To preserve spatial relationships, we used sinusoidal positional encodings, represented mathematically as:
-\[
-PE_{(pos, 2i)} = \sin \left( \frac{pos}{10000^{\frac{2i}{d_{model}}}} \right)
-\]
-\[
-PE_{(pos, 2i+1)} = \cos \left( \frac{pos}{10000^{\frac{2i}{d_{model}}}} \right)
-\]
-where \(pos\) is the position index, \(i\) is the dimension index, and \(d_{model}\) is the feature dimension.
+To preserve spatial relationships, we used sinusoidal positional encodings:
+```plaintext
+PE(pos, 2i)   = sin(pos / 10000^(2i / d_model))
+PE(pos, 2i+1) = cos(pos / 10000^(2i / d_model))
+```
+where `pos` is the position index, `i` is the dimension index, and `d_model` is the feature dimension.
 
 #### Transformer Encoder-Decoder
 - **Encoder:** Processes fused features using self-attention mechanisms. The encoder outputs contextualized feature representations.
 - **Decoder:** Uses learnable object queries to predict bounding boxes and class labels.
 
+#### Attention Mechanism
+Attention computes weights for each input element, enabling the model to focus on relevant features:
+```plaintext
+Attention(Q, K, V) = softmax(QK^T / sqrt(d_k)) * V
+```
+where:
+- `Q` (query): Represents the current element being processed.
+- `K` (key): Represents other elements to compare against.
+- `V` (value): Represents features to be weighted.
+- `d_k`: Dimensionality of the key.
+
+Multi-head attention extends this by splitting the input into multiple subspaces:
+```plaintext
+MultiHead(Q, K, V) = Concat(head_1, ..., head_h) * W_o
+```
+where each `head_i = Attention(QW_i^Q, KW_i^K, VW_i^V)` with learned weight matrices `W_i`.
+
 The overall forward pass can be expressed as:
-\[
-F_{fused} = \text{Concat}(F_{image}, F_{LiDAR})
-\]
-\[
-F_{output} = \text{Decoder}(\text{Encoder}(F_{fused}))
-\]
+```plaintext
+F_fused  = Concat(F_image, F_LiDAR)
+F_output = Decoder(Encoder(F_fused))
+```
 
 #### Loss Functions
 The model minimizes a multi-task loss function:
-\[
-L_{total} = \alpha L_{class} + \beta L_{reg} + \gamma L_{IoU}
-\]
+```plaintext
+L_total = α * L_class + β * L_reg + γ * L_IoU
+```
 where:
-- \(L_{class}\): Cross-entropy loss for classification.
-- \(L_{reg}\): Smooth L1 loss for bounding box regression.
-- \(L_{IoU}\): Generalized Intersection over Union (GIoU) loss.
+- `L_class`: Cross-entropy loss for classification.
+- `L_reg`: Smooth L1 loss for bounding box regression.
+- `L_IoU`: Generalized Intersection over Union (GIoU) loss.
 
-Hyperparameters \(\alpha\), \(\beta\), and \(\gamma\) control the relative importance of each term.
+Hyperparameters `α`, `β`, and `γ` control the relative importance of each term.
 
 ---
 
@@ -209,4 +222,3 @@ If you use this work, please cite:
   year = {2024},
   url = {https://github.com/125918700/CS-7643-Final-Project}
 }
-```
