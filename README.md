@@ -278,10 +278,10 @@ CS-7643-Final-Project/
 Below are examples of detection outputs from the fusion model:
 
 #### Example 1
-![Example 1](examples/example1.png)
+![Example 1](images/example1.png)
 
 #### Example 2
-![Example 2](examples/example2.png)
+![Example 2](images/example2.png)
 
 ---
 
