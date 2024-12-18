@@ -37,6 +37,8 @@ We explore a DETR-inspired architecture that integrates both modalities using ea
 We used the **Waymo Open Dataset**, which provides synchronized camera and LiDAR data under diverse conditions (e.g., weather, lighting, and traffic).
 
 ### Model Architecture
+#### Example 1
+![Model Architeture](images/MM-Fusion-Detector.jpeg)
 Our model adapts the DETR (DEtection TRansformer) architecture to handle multimodal data fusion. Key components include:
 
 #### Early Fusion Framework
@@ -190,10 +192,10 @@ CS-7643-Final-Project/
 Below are examples of detection outputs from the fusion model:
 
 #### Example 1
-![Example 1](examples/example1.png)
+![Example 1](images/example1.png)
 
 #### Example 2
-![Example 2](examples/example2.png)
+![Example 2](images/example2.png)
 
 ---
 
