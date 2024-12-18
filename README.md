@@ -114,42 +114,42 @@ Our model was compared against:
 
 ---
 
-## **Setup Instructions**
+## **Quick Start**
 
 ### **Prerequisites**
 Ensure you have the following installed:
 - **Conda**: [Installation Guide](https://docs.conda.io/projects/conda/en/latest/user-guide/install/)
 
-## **Step 1: Clone the Repository**
+### **Step 1: Clone the Repository**
 
 git clone https://github.com/125918700/CS-7643-Final-Project.git
 cd ./CS-7643-Final-Project
 
-## **Step 2: Create and Activate Conda Environment**
+### **Step 2: Create and Activate Conda Environment**
 
 conda create -n mm-fusion-ped-det python=3.10
 conda activate mm-fusion-ped-det
 
 
-## **Step 3: Install Dependencies**
+### **Step 3: Install Dependencies**
 
-### **3.1 Install TensorFlow**
+#### **3.1 Install TensorFlow**
 
 To ensure compatibility with Waymo tools, install TensorFlow **2.11.0**:
 
 pip install tensorflow==2.11.0
 
-### **3.2 Install Core Libraries**
+#### **3.2 Install Core Libraries**
 
 pip install torch torchvision torchaudio transformers numpy
 
-### **3.3 Install Waymo Open Dataset Tools**
+#### **3.3 Install Waymo Open Dataset Tools**
 
 For TensorFlow **2.11+**, install Waymo Open Dataset Tools using pip:
 
 pip install waymo-open-dataset-tf-2-11-0
 
-## **Step 4: Verify Installation**
+### **Step 4: Verify Installation**
 
 Run the following script to verify your environment setup:
 
@@ -163,14 +163,14 @@ print('PyTorch Version:', torch.__version__)
 print('Waymo Open Dataset Installed Successfully!')
 "
 
-## Dataset Preparation
+### Dataset Preparation
 1. Download the Waymo Open Dataset.
 2. Preprocess the dataset using the following command:
    ```bash
    python preprocess_data.py --dataset_path /path/to/waymo --output_path /path/to/output
    ```
 
-## Feature Extraction
+### Feature Extraction
 Extract features from the Waymo dataset:
 1. Image features:
    ```bash
@@ -181,19 +181,19 @@ Extract features from the Waymo dataset:
    python lidarFeature_extractor.py --input_dir /path/to/lidar --output_dir /path/to/output/features
    ```
 
-## Training the Model
+### Training the Model
 Train the fusion model using the following command:
 ```bash
 python trainer.py --config configs/fusion_model.yaml
 ```
 
-## Baseline Mask R-CNN
+### Baseline Mask R-CNN
 To run the baseline Mask R-CNN model:
 ```bash
 python baseline_model_maskRCNN.py --input_dir /path/to/images --output_dir /path/to/output/predictions
 ```
 
-## Inference
+### Inference
 Run inference on test data using the trained fusion model:
 ```bash
 python output_model_prediction.py --model_path /path/to/checkpoint.pth --test_data /path/to/test
