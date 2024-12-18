@@ -37,7 +37,7 @@ We explore a DETR-inspired architecture that integrates both modalities using ea
 We used the **Waymo Open Dataset**, which provides synchronized camera and LiDAR data under diverse conditions (e.g., weather, lighting, and traffic).
 
 ### Model Architecture
-#### Example 1
+#### Model Architeture Diagram
 ![Model Architeture](images/MM-Fusion-Detector.jpeg)
 Our model adapts the DETR (DEtection TRansformer) architecture to handle multimodal data fusion. Key components include:
 
@@ -114,32 +114,63 @@ Our model was compared against:
 
 ---
 
-## Getting Started
-### Prerequisites
-- Python 3.8+
-- PyTorch 1.11+
-- CUDA 11.3+ (for GPU acceleration)
+## **Setup Instructions**
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/125918700/CS-7643-Final-Project.git
-   cd CS-7643-Final-Project
-   ```
-2. Install dependencies:
-   ```bash
-   conda env create -f environment.yml
-   conda activate mm-fusion-ped-det
-   ```
+### **Prerequisites**
+Ensure you have the following installed:
+- **Conda**: [Installation Guide](https://docs.conda.io/projects/conda/en/latest/user-guide/install/)
 
-### Dataset Preparation
+## **Step 1: Clone the Repository**
+
+git clone https://github.com/125918700/CS-7643-Final-Project.git
+cd ./CS-7643-Final-Project
+
+## **Step 2: Create and Activate Conda Environment**
+
+conda create -n mm-fusion-ped-det python=3.10
+conda activate mm-fusion-ped-det
+
+
+## **Step 3: Install Dependencies**
+
+### **3.1 Install TensorFlow**
+
+To ensure compatibility with Waymo tools, install TensorFlow **2.11.0**:
+
+pip install tensorflow==2.11.0
+
+### **3.2 Install Core Libraries**
+
+pip install torch torchvision torchaudio transformers numpy
+
+### **3.3 Install Waymo Open Dataset Tools**
+
+For TensorFlow **2.11+**, install Waymo Open Dataset Tools using pip:
+
+pip install waymo-open-dataset-tf-2-11-0
+
+## **Step 4: Verify Installation**
+
+Run the following script to verify your environment setup:
+
+python -c "
+import tensorflow as tf
+from waymo_open_dataset import dataset_pb2 as open_dataset
+import torch
+
+print('TensorFlow Version:', tf.__version__)
+print('PyTorch Version:', torch.__version__)
+print('Waymo Open Dataset Installed Successfully!')
+"
+
+## Dataset Preparation
 1. Download the Waymo Open Dataset.
 2. Preprocess the dataset using the following command:
    ```bash
    python preprocess_data.py --dataset_path /path/to/waymo --output_path /path/to/output
    ```
 
-### Feature Extraction
+## Feature Extraction
 Extract features from the Waymo dataset:
 1. Image features:
    ```bash
@@ -150,19 +181,19 @@ Extract features from the Waymo dataset:
    python lidarFeature_extractor.py --input_dir /path/to/lidar --output_dir /path/to/output/features
    ```
 
-### Training the Model
+## Training the Model
 Train the fusion model using the following command:
 ```bash
 python trainer.py --config configs/fusion_model.yaml
 ```
 
-### Baseline Mask R-CNN
+## Baseline Mask R-CNN
 To run the baseline Mask R-CNN model:
 ```bash
 python baseline_model_maskRCNN.py --input_dir /path/to/images --output_dir /path/to/output/predictions
 ```
 
-### Inference
+## Inference
 Run inference on test data using the trained fusion model:
 ```bash
 python output_model_prediction.py --model_path /path/to/checkpoint.pth --test_data /path/to/test
@@ -215,6 +246,18 @@ Below are examples of detection outputs from the fusion model:
 
 ---
 
+## Contributing
+
+Please fork the repository and submit a pull request for any improvements.
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
 ### Citation
 If you use this work, please cite:
 ```
@@ -222,5 +265,6 @@ If you use this work, please cite:
   author = {Felix Galindo, Yunmiao Wang, Xinyao Wang},
   title = {Multimodal Transformer Fusion of LiDAR and Camera Data for Vehicle Detection},
   year = {2024},
-  url = {https://github.com/125918700/CS-7643-Final-Project}
+  url = {https://github.com/felixgalindo/MultiModal-Fusion-Vehicle-Detector}
 }
+
