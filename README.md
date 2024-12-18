@@ -10,12 +10,30 @@ Our work demonstrates the advantages of multimodal fusion over unimodal detectio
 ## Table of Contents
 - [Background](#background)
 - [Approach](#approach)
+  - [Dataset](#dataset)
+  - [Model Architecture](#model-architecture)
+    - [Early Fusion Framework](#early-fusion-framework)
+    - [Positional Encoding](#positional-encoding)
+    - [Transformer Encoder-Decoder](#transformer-encoder-decoder)
+    - [Attention Mechanism](#attention-mechanism)
+    - [Loss Functions](#loss-functions)
 - [Results](#results)
+  - [Metrics](#metrics)
+  - [Key Observations](#key-observations)
 - [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Dataset Preparation](#dataset-preparation)
+  - [Feature Extraction](#feature-extraction)
+  - [Training the Model](#training-the-model)
+  - [Running Visualizations](#running-visualizations)
+  - [Baseline Mask R-CNN](#baseline-mask-r-cnn)
+  - [Inference](#inference)
 - [Code Structure](#code-structure)
 - [Examples](#examples)
 - [Contributions](#contributions)
 - [References](#references)
+- [Citation](#citation)
 
 ---
 
@@ -40,7 +58,6 @@ We used the **Waymo Open Dataset**, which provides synchronized camera and LiDAR
 #### Model Architeture Diagram
 ![Model Architeture](images/MM-Fusion-Detector.jpeg)
 Our model adapts the DETR (DEtection TRansformer) architecture to handle multimodal data fusion. Key components include:
-
 #### Early Fusion Framework
 We combined image and LiDAR features early in the pipeline to create a unified high-dimensional representation. This process helps leverage the strengths of both modalities:
 - **Image features** provide rich contextual information about the scene.
@@ -114,8 +131,7 @@ Our model was compared against:
 
 ---
 
-## **Quick Start**
-
+## Getting Started
 ### **Prerequisites**
 Ensure you have the following installed:
 - **Conda**: [Installation Guide](https://docs.conda.io/projects/conda/en/latest/user-guide/install/)
@@ -171,32 +187,65 @@ print('Waymo Open Dataset Installed Successfully!')
    ```
 
 ### Feature Extraction
-Extract features from the Waymo dataset:
-1. Image features:
-   ```bash
-   python imgFeature_extractor.py --input_dir /path/to/images --output_dir /path/to/output/features
-   ```
-2. LiDAR features:
-   ```bash
-   python lidarFeature_extractor.py --input_dir /path/to/lidar --output_dir /path/to/output/features
-   ```
+#### Image Features
+The `imgFeature_extractor.py` script extracts image features using a pre-trained ResNet-50 model. Ensure the following directories exist:
+- **Input Directory:** `./dataset/compressed_camera_images2` (default input folder for `.jpg` images).
+- **Output Directory:** `./data/image_features_more_layers` (default output folder).
+
+Run the script:
+```bash
+python imgFeature_extractor.py
+```
+The extracted features will be saved in the specified output directory.
+
+#### LiDAR Features
+The `lidarFeature_extractor.py` script extracts LiDAR features. Ensure the following directories exist:
+- **Input Directory:** `./dataset/raw_lidar_files` (default input folder for LiDAR point cloud files).
+- **Output Directory:** `./dataset/lidar_projected_cae_resized` (default output folder).
+
+Run the script:
+```bash
+python lidarFeature_extractor.py
+```
+The processed LiDAR features will be saved in the output directory.
 
 ### Training the Model
-Train the fusion model using the following command:
+Train the fusion model by ensuring the following paths are set:
+- **Image Features Directory:** `./data/image_features_more_layers`
+- **Annotation Directory (Pickle files):** `./dataset/cam_box_per_image`
+- **LiDAR Features Directory:** `./dataset/lidar_projected_cae_resized`
+
+Run the training script:
 ```bash
-python trainer.py --config configs/fusion_model.yaml
+python trainer.py
 ```
+The model and checkpoints will be saved to `./data/models/`.
+
+### Running Visualizations
+Generate visualizations of model predictions by setting:
+- **Model Path:** Path to the trained model checkpoint (e.g., `./data/models/best_model.pth`)
+- **Data Directories:**
+  - Annotations: `./dataset/cam_box_per_image`
+  - Image Features: `./data/image_features_more_layers`
+  - LiDAR Features: `./dataset/lidar_projected_cae_resized`
+- **Output Directory:** Directory for saving visualizations (default: `./data/visualizations/`)
+
+Run the visualization script:
+```bash
+python visualizations.py
+```
+The visualizations will be saved in the specified output directory.
 
 ### Baseline Mask R-CNN
 To run the baseline Mask R-CNN model:
 ```bash
-python baseline_model_maskRCNN.py --input_dir /path/to/images --output_dir /path/to/output/predictions
+python baseline_model_maskRCNN.py 
 ```
 
 ### Inference
 Run inference on test data using the trained fusion model:
 ```bash
-python output_model_prediction.py --model_path /path/to/checkpoint.pth --test_data /path/to/test
+python output_model_prediction.py 
 ```
 
 ---
@@ -204,16 +253,22 @@ python output_model_prediction.py --model_path /path/to/checkpoint.pth --test_da
 ## Code Structure
 ```
 CS-7643-Final-Project/
-├── configs/               # Configuration files
-├── data/                  # Data preprocessing scripts
-├── models/                # Model architectures
-├── training/              # Training scripts
-├── inference/             # Inference scripts
-├── utils/                 # Utility functions
-├── imgFeature_extractor.py # Image feature extraction
-├── baseline_model_maskRCNN.py # Baseline model
-├── output_model_prediction.py # Model inference
-└── README.md              # Project overview
+├── data/                          # Scripts and data for preprocessing and storage
+├── dataset/                       # Dataset containing waymo dataset
+├── plots/                         # Plots for learning curves and metrics visualization
+├── images/                        # Images used in documentation or visualizations
+├── Metrics.py                     # Script for calculating evaluation metrics
+├── mm_fusion_detector.py          # Multimodal fusion detector implementation
+├── mm_fusion_detector_dataset.py  # Dataset management for multimodal fusion detector
+├── trainer.py                     # Main script for training the multimodal fusion model
+├── visualizations.py              # Script for generating visualizations of model predictions
+├── imgFeature_extractor.py        # Script for extracting image features using ResNet-50
+├── lidarFeature_extractor.py      # Script for extracting and projecting LiDAR features
+├── baseline_model_maskRCNN.py     # Baseline Mask R-CNN implementation
+├── output_model_prediction.py     # Script for running model inference
+├── enviroment.yml                 # Environment setup file for dependencies
+├── .gitignore                     # Files and directories to ignore in version control
+└── README.md                      # Project overview and instructions
 ```
 
 ---
@@ -223,10 +278,10 @@ CS-7643-Final-Project/
 Below are examples of detection outputs from the fusion model:
 
 #### Example 1
-![Example 1](images/example1.png)
+![Example 1](examples/example1.png)
 
 #### Example 2
-![Example 2](images/example2.png)
+![Example 2](examples/example2.png)
 
 ---
 
@@ -246,25 +301,13 @@ Below are examples of detection outputs from the fusion model:
 
 ---
 
-## Contributing
-
-Please fork the repository and submit a pull request for any improvements.
-
----
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
----
-
-### Citation
+## Citation
 If you use this work, please cite:
 ```
 @misc{galindo2024multimodal,
   author = {Felix Galindo, Yunmiao Wang, Xinyao Wang},
   title = {Multimodal Transformer Fusion of LiDAR and Camera Data for Vehicle Detection},
   year = {2024},
-  url = {https://github.com/felixgalindo/MultiModal-Fusion-Vehicle-Detector}
+  url = {https://github.com/125918700/CS-7643-Final-Project}
 }
-
+```
