@@ -1,7 +1,7 @@
 # Multimodal Transformer Fusion of LiDAR and Camera Data for Vehicle Detection
 
 ## Overview
-This repository contains the implementation of our project, *Multimodal Transformer Fusion of LiDAR and Camera Data for Vehicle Detection*, developed as part of Georgia Tech's CS 7643 course. The project leverages multimodal data (LiDAR and camera) to enhance vehicle detection using a DETR-inspired transformer-based framework.
+This repository contains the implementation of our project, *Multimodal Transformer Fusion of LiDAR and Camera Data for Vehicle Detection*, developed as part of Georgia Tech's CS 7643 Deep Learning course. The project leverages multimodal data (LiDAR and camera) to enhance vehicle detection using a DETR-inspired transformer-based framework.
 
 Our work demonstrates the advantages of multimodal fusion over unimodal detection systems, achieving significant improvements in object detection performance on the Waymo Open Dataset.
 
